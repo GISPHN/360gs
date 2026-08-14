@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢まで自動解析する360GS" />
+  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢、自動区間分割まで解析する360GS" />
   <title>360GS | 360°動画を確認</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./video.css" />
   <link rel="stylesheet" href="./pose.css" />
+  <link rel="stylesheet" href="./segment.css" />
 </head>
 <body>
   <header class="app-header">
@@ -16,7 +17,7 @@
       <div class="brand">360GS</div>
       <div class="brand-sub">360°動画から3D空間を作る準備</div>
     </div>
-    <span class="version">Prototype v0.2d</span>
+    <span class="version">Prototype v0.2e</span>
   </header>
 
   <main class="video-shell">
@@ -26,11 +27,11 @@
     </div>
 
     <section class="video-hero">
-      <p class="eyebrow">Step 4 / 相対カメラ姿勢</p>
-      <h1>360°動画から、撮影時の動きまで自動推定します。</h1>
+      <p class="eyebrow">Step 5 / 自動区間分割</p>
+      <h1>不安定な箇所を避け、3D化しやすい区間へ自動整理します。</h1>
       <p>
-        連続性と局所特徴点を確認した後、対応点を360°カメラ座標へ戻し、幾何学的に整合する対応だけを残して
-        隣接キーフレーム間の相対回転と移動方向を推定します。短い動画でも長い動画でも設定は不要です。
+        相対カメラ姿勢まで推定した後、姿勢が不安定な区間を境界候補として検出します。
+        連続して安定する部分を3D化候補として自動整理し、長い動画でも利用者が手作業で分割する必要がない構成を目指します。
       </p>
     </section>
 
@@ -71,9 +72,9 @@
       <div class="next-step-note">
         <h3>この版で行っていること</h3>
         <p>
-          代表画像の抽出、動画全体の連続性確認、透視画像上の局所特徴点対応に続き、
-          対応点を360°カメラの単位方向ベクトルへ変換します。RANSACで外れ対応を除外し、
-          Essential matrixから相対回転と移動方向を推定します。絶対距離のスケールはまだ求めません。
+          代表画像、連続性、局所特徴点、相対カメラ姿勢を順番に確認します。その後、
+          相対姿勢の成立状況、幾何学的内点率、視差角を区間単位で再評価し、不安定な箇所を境界候補として自動分割します。
+          安定した連続区間は3D化候補として残し、短い区間や不安定な区間は保留します。
         </p>
       </div>
 
@@ -189,7 +190,7 @@
       <div class="privacy-mark" aria-hidden="true">✓</div>
       <div>
         <h2>動画はこの端末内だけで処理します</h2>
-        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢推定の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
+        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢、自動区間分割の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
       </div>
     </section>
   </main>
@@ -198,5 +199,6 @@
   <canvas id="capture-canvas" hidden></canvas>
   <script type="module" src="./video.js"></script>
   <script type="module" src="./pose.js"></script>
+  <script type="module" src="./segment.js"></script>
 </body>
 </html>
