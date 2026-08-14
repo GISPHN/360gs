@@ -4,13 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢、自動区間分割、局所SfMまで解析する360GS" />
+  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢、自動区間分割、局所SfM、軽量Bundle Adjustmentまで解析する360GS" />
   <title>360GS | 360°動画を確認</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./video.css" />
   <link rel="stylesheet" href="./pose.css" />
   <link rel="stylesheet" href="./segment.css" />
   <link rel="stylesheet" href="./sfm.css" />
+  <link rel="stylesheet" href="./ba.css" />
 </head>
 <body>
   <header class="app-header">
@@ -18,7 +19,7 @@
       <div class="brand">360GS</div>
       <div class="brand-sub">360°動画から3D空間を作る準備</div>
     </div>
-    <span class="version">Prototype v0.2f</span>
+    <span class="version">Prototype v0.2g</span>
   </header>
 
   <main class="video-shell">
@@ -28,11 +29,11 @@
     </div>
 
     <section class="video-hero">
-      <p class="eyebrow">Step 6 / 局所SfM再計算</p>
-      <h1>3D化候補区間だけを、より細かく再構成します。</h1>
+      <p class="eyebrow">Step 7 / 全体最適化</p>
+      <h1>局所3D復元を、複数視点の観測でまとめて整えます。</h1>
       <p>
-        自動分割で残った3D化候補区間の内部だけキーフレームを追加し、相対姿勢を再計算します。
-        隣接フレームに加えて1枚飛ばしの整合性も確認し、成立した対応から疎な3D点を三角測量します。
+        局所SfMで再構成できた候補区間について、3フレーム以上で追跡できる特徴をまとめます。
+        360°の方向ベクトル誤差を小さくするように、カメラ姿勢と疎な3D点を同じ目的関数で調整します。
       </p>
     </section>
 
@@ -73,9 +74,9 @@
       <div class="next-step-note">
         <h3>この版で行っていること</h3>
         <p>
-          代表画像、連続性、局所特徴点、相対カメラ姿勢、自動区間分割を順番に行います。
-          その後、3D化候補区間の内部だけフレーム密度を上げて相対姿勢を再推定し、1枚飛ばしの幾何整合と疎な3D点の三角測量まで自動確認します。
-          極端に大きい視差角は姿勢推定の破綻候補として除外します。
+          代表画像、連続性、局所特徴点、相対カメラ姿勢、自動区間分割、局所SfMを順番に行います。
+          その後、3フレーム以上にわたって追跡できた特徴を使い、カメラ姿勢と3D点をロバストな観測誤差で全体調整します。
+          極端な視差や外れ観測の影響は抑え、絶対距離スケールはまだ固定しません。
         </p>
       </div>
 
@@ -191,7 +192,7 @@
       <div class="privacy-mark" aria-hidden="true">✓</div>
       <div>
         <h2>動画はこの端末内だけで処理します</h2>
-        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢、自動区間分割、局所SfMの中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
+        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢、自動区間分割、局所SfM、全体最適化の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
       </div>
     </section>
   </main>
@@ -202,5 +203,6 @@
   <script type="module" src="./pose.js"></script>
   <script type="module" src="./segment.js"></script>
   <script type="module" src="./sfm.js"></script>
+  <script type="module" src="./ba.js"></script>
 </body>
 </html>
