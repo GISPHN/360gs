@@ -18,10 +18,18 @@ const continuityAdded = document.querySelector('#continuity-added');
 const continuityWeak = document.querySelector('#continuity-weak');
 const continuityTimeline = document.querySelector('#continuity-timeline');
 const continuityMessage = document.querySelector('#continuity-message');
+const featurePanel = document.querySelector('#feature-panel');
+const featureFrames = document.querySelector('#feature-frames');
+const featurePairs = document.querySelector('#feature-pairs');
+const featureWeak = document.querySelector('#feature-weak');
+const featureParallax = document.querySelector('#feature-parallax');
+const featureTimeline = document.querySelector('#feature-timeline');
+const featureMessage = document.querySelector('#feature-message');
 
 let currentUrl = null;
 let frameUrls = [];
 let analysisGeneration = 0;
+let perspectiveMapCache = null;
 
 const MAX_PREVIEW_FRAMES = 12;
 const PREVIEW_WIDTH = 960;
@@ -32,6 +40,18 @@ const BAND_BOTTOM = 0.78;
 const CONTINUITY_TARGET = 0.58;
 const CONTINUITY_GOOD = 0.72;
 const CONTINUITY_WEAK = 0.46;
+
+const FEATURE_EQ_WIDTH = 512;
+const FEATURE_EQ_HEIGHT = 256;
+const FEATURE_VIEW_SIZE = 144;
+const FEATURE_FOV_DEG = 100;
+const FEATURE_VIEW_YAWS = [0, 90, 180, 270];
+const FEATURE_MAX_POINTS = 64;
+const FEATURE_PATCH_OFFSETS = [-5, -2, 0, 2, 5];
+const FEATURE_MIN_DISTANCE = 8;
+const FEATURE_GOOD_MATCHES = 34;
+const FEATURE_WEAK_MATCHES = 14;
+const PARALLAX_PROXY_THRESHOLD = 1.6;
 
 function formatBytes(bytes) {
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -70,10 +90,24 @@ function clearContinuity() {
   document.querySelectorAll('.continuity-long-note').forEach((element) => element.remove());
 }
 
+function clearFeatureAnalysis() {
+  featurePanel.hidden = true;
+  featureTimeline.replaceChildren();
+  featureMessage.hidden = true;
+  featureMessage.textContent = '';
+  featureMessage.className = 'message-box';
+  featureFrames.textContent = '—';
+  featurePairs.textContent = '—';
+  featureWeak.textContent = '—';
+  featureParallax.textContent = '—';
+  document.querySelectorAll('.feature-long-note').forEach((element) => element.remove());
+}
+
 function cleanup() {
   analysisGeneration += 1;
   clearFrames();
   clearContinuity();
+  clearFeatureAnalysis();
   if (currentUrl) {
     URL.revokeObjectURL(currentUrl);
     currentUrl = null;
@@ -176,7 +210,7 @@ async function capturePreviewFrame(time, index, total) {
   figure.append(image, caption);
   frameGrid.append(figure);
 
-  const percent = 25 + ((index + 1) / total) * 25;
+  const percent = 18 + ((index + 1) / total) * 20;
   setProgress(percent, `代表画像を作っています (${index + 1}/${total})`);
 }
 
@@ -418,7 +452,7 @@ async function runAdaptiveContinuity(duration, generation) {
   continuityCount.textContent = '準備中';
   continuityAdded.textContent = '0';
   continuityWeak.textContent = '確認中';
-  setProgress(55, `${plan.mode}で映像のつながりを確認しています`);
+  setProgress(40, `${plan.mode}で映像のつながりを確認しています`);
 
   const initialTimes = evenlySpacedTimes(duration, plan.initialCount);
   const samples = [];
@@ -428,7 +462,7 @@ async function runAdaptiveContinuity(duration, generation) {
     if (generation !== analysisGeneration) return null;
     const descriptor = await captureAnalysisDescriptor(initialTimes[index]);
     samples.push({ time: initialTimes[index], descriptor });
-    const percent = 55 + ((index + 1) / initialTimes.length) * 18;
+    const percent = 40 + ((index + 1) / initialTimes.length) * 14;
     setProgress(percent, `動画全体を確認しています (${index + 1}/${initialTimes.length})`);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   }
@@ -448,7 +482,7 @@ async function runAdaptiveContinuity(duration, generation) {
     additions += 1;
 
     const fill = Math.min(1, additions / Math.max(1, plan.budget - initialCount));
-    setProgress(73 + fill * 22, `必要な区間を詳しく確認しています (${samples.length}枚)`);
+    setProgress(54 + fill * 10, `必要な区間を詳しく確認しています (${samples.length}枚)`);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   }
 
@@ -469,7 +503,7 @@ async function runAdaptiveContinuity(duration, generation) {
   }
 
   renderContinuityResult({ plan, samples, additions, pairs, goodCount, attentionCount, weakCount, duration });
-  setProgress(100, '素材の確認と連続性チェックが完了しました');
+  setProgress(65, '連続性チェックが完了しました');
 
   return { plan, samples, additions, pairs, goodCount, attentionCount, weakCount };
 }
@@ -498,13 +532,13 @@ function renderContinuityResult({ plan, samples, additions, pairs, goodCount, at
 
   if (weakRatio <= 0.1 && attentionRatio <= 0.35) {
     continuityMessage.className = 'message-box success';
-    continuityMessage.textContent = '画像同士のつながりは概ね良好です。次の撮影位置推定へ進める素材として扱います。';
+    continuityMessage.textContent = '画像同士のつながりは概ね良好です。続けて、透視画像に展開して局所的な対応点を確認します。';
   } else if (weakRatio <= 0.3) {
     continuityMessage.className = 'message-box warning';
-    continuityMessage.textContent = '多くの区間はつながっていますが、一部で画像のつながりが弱い可能性があります。次工程では弱い区間を追加確認しながら撮影位置を推定します。';
+    continuityMessage.textContent = '多くの区間はつながっていますが、一部で画像のつながりが弱い可能性があります。弱い区間も含めて局所特徴点を確認します。';
   } else {
     continuityMessage.className = 'message-box warning';
-    continuityMessage.textContent = '画像のつながりが弱い区間が複数あります。長い移動、急な向きの変化、暗さ、被写体の少なさなどが影響している可能性があります。次工程では自動区間分割の候補として扱います。';
+    continuityMessage.textContent = '画像のつながりが弱い区間が複数あります。長い移動、急な向きの変化、暗さ、被写体の少なさなどが影響している可能性があります。局所特徴点でも確認します。';
   }
 
   if (duration > 300 && samples.length >= plan.budget - 1 && weakCount > 0) {
@@ -515,11 +549,420 @@ function renderContinuityResult({ plan, samples, additions, pairs, goodCount, at
   }
 }
 
+function featureKeyframeLimit(duration) {
+  if (duration <= 60) return 18;
+  if (duration <= 300) return 28;
+  return 40;
+}
+
+function selectFeatureTimes(continuityResult, duration) {
+  const samples = continuityResult.samples;
+  const limit = Math.min(featureKeyframeLimit(duration), samples.length);
+  if (samples.length <= limit) return samples.map((sample) => sample.time);
+
+  const selected = new Set([0, samples.length - 1]);
+
+  continuityResult.pairs.forEach((pair, index) => {
+    if (pair.state !== 'good') {
+      selected.add(index);
+      selected.add(index + 1);
+    }
+  });
+
+  if (selected.size > limit) {
+    const priority = Array.from(selected).sort((a, b) => a - b);
+    const thinned = new Set([0, samples.length - 1]);
+    const slots = Math.max(0, limit - 2);
+    for (let i = 0; i < slots; i += 1) {
+      const pos = slots <= 1 ? 0 : i / (slots - 1);
+      const idx = priority[Math.round(pos * (priority.length - 1))];
+      thinned.add(idx);
+    }
+    return Array.from(thinned).sort((a, b) => a - b).map((index) => samples[index].time);
+  }
+
+  let cursor = 0;
+  while (selected.size < limit && cursor < limit * 3) {
+    const position = cursor / Math.max(1, limit * 3 - 1);
+    selected.add(Math.round(position * (samples.length - 1)));
+    cursor += 1;
+  }
+
+  if (selected.size < limit) {
+    for (let index = 0; index < samples.length && selected.size < limit; index += 1) {
+      selected.add(index);
+    }
+  }
+
+  return Array.from(selected).sort((a, b) => a - b).map((index) => samples[index].time);
+}
+
+function getPerspectiveMaps() {
+  if (perspectiveMapCache) return perspectiveMapCache;
+
+  const maps = [];
+  const size = FEATURE_VIEW_SIZE;
+  const sourceWidth = FEATURE_EQ_WIDTH;
+  const sourceHeight = FEATURE_EQ_HEIGHT;
+  const halfFov = Math.tan((FEATURE_FOV_DEG * Math.PI / 180) / 2);
+
+  FEATURE_VIEW_YAWS.forEach((yawDeg) => {
+    const yaw = yawDeg * Math.PI / 180;
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    const map = new Uint32Array(size * size);
+
+    for (let y = 0; y < size; y += 1) {
+      const ny = ((y + 0.5) / size * 2 - 1) * halfFov;
+      for (let x = 0; x < size; x += 1) {
+        const nx = ((x + 0.5) / size * 2 - 1) * halfFov;
+
+        let vx = nx;
+        let vy = -ny;
+        let vz = 1;
+        const length = Math.hypot(vx, vy, vz);
+        vx /= length;
+        vy /= length;
+        vz /= length;
+
+        const worldX = vx * cosYaw + vz * sinYaw;
+        const worldZ = -vx * sinYaw + vz * cosYaw;
+        const longitude = Math.atan2(worldX, worldZ);
+        const latitude = Math.asin(Math.max(-1, Math.min(1, vy)));
+
+        let sourceX = Math.floor((longitude / (Math.PI * 2) + 0.5) * sourceWidth);
+        sourceX = ((sourceX % sourceWidth) + sourceWidth) % sourceWidth;
+        const sourceY = Math.max(0, Math.min(sourceHeight - 1, Math.floor((0.5 - latitude / Math.PI) * sourceHeight)));
+        map[y * size + x] = sourceY * sourceWidth + sourceX;
+      }
+    }
+    maps.push(map);
+  });
+
+  perspectiveMapCache = maps;
+  return maps;
+}
+
+async function captureFeaturePanorama(time) {
+  await seekVideo(time);
+  canvas.width = FEATURE_EQ_WIDTH;
+  canvas.height = FEATURE_EQ_HEIGHT;
+  const context = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+  context.drawImage(video, 0, 0, FEATURE_EQ_WIDTH, FEATURE_EQ_HEIGHT);
+  const imageData = context.getImageData(0, 0, FEATURE_EQ_WIDTH, FEATURE_EQ_HEIGHT);
+  const gray = new Uint8Array(FEATURE_EQ_WIDTH * FEATURE_EQ_HEIGHT);
+
+  for (let i = 0, p = 0; i < imageData.data.length; i += 4, p += 1) {
+    gray[p] = Math.round(0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2]);
+  }
+
+  return gray;
+}
+
+function projectPerspective(gray, map) {
+  const output = new Uint8Array(map.length);
+  for (let index = 0; index < map.length; index += 1) output[index] = gray[map[index]];
+  return output;
+}
+
+function cornerResponse(gray, size, x, y) {
+  let a = 0;
+  let b = 0;
+  let c = 0;
+
+  for (let dy = -2; dy <= 2; dy += 1) {
+    const row = (y + dy) * size;
+    for (let dx = -2; dx <= 2; dx += 1) {
+      const px = x + dx;
+      const gx = gray[row + px + 1] - gray[row + px - 1];
+      const gy = gray[row + size + px] - gray[row - size + px];
+      a += gx * gx;
+      b += gy * gy;
+      c += gx * gy;
+    }
+  }
+
+  const trace = a + b;
+  const determinantTerm = Math.sqrt(Math.max(0, (a - b) * (a - b) + 4 * c * c));
+  return (trace - determinantTerm) / 2;
+}
+
+function makePatchDescriptor(gray, size, x, y) {
+  const raw = new Float32Array(FEATURE_PATCH_OFFSETS.length * FEATURE_PATCH_OFFSETS.length);
+  let index = 0;
+  let mean = 0;
+
+  for (const dy of FEATURE_PATCH_OFFSETS) {
+    for (const dx of FEATURE_PATCH_OFFSETS) {
+      const value = gray[(y + dy) * size + (x + dx)];
+      raw[index] = value;
+      mean += value;
+      index += 1;
+    }
+  }
+
+  mean /= raw.length;
+  let variance = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    const delta = raw[i] - mean;
+    variance += delta * delta;
+  }
+  const std = Math.sqrt(variance / raw.length);
+  if (std < 8) return null;
+
+  for (let i = 0; i < raw.length; i += 1) raw[i] = (raw[i] - mean) / std;
+  return raw;
+}
+
+function detectLocalFeatures(gray, size) {
+  const candidates = [];
+  const margin = 8;
+
+  for (let y = margin; y < size - margin; y += 3) {
+    for (let x = margin; x < size - margin; x += 3) {
+      const response = cornerResponse(gray, size, x, y);
+      if (response > 1800) candidates.push({ x, y, response });
+    }
+  }
+
+  candidates.sort((a, b) => b.response - a.response);
+  const features = [];
+
+  for (const candidate of candidates) {
+    let tooClose = false;
+    for (const existing of features) {
+      const dx = candidate.x - existing.x;
+      const dy = candidate.y - existing.y;
+      if (dx * dx + dy * dy < FEATURE_MIN_DISTANCE * FEATURE_MIN_DISTANCE) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    const descriptor = makePatchDescriptor(gray, size, candidate.x, candidate.y);
+    if (!descriptor) continue;
+    features.push({ ...candidate, descriptor });
+    if (features.length >= FEATURE_MAX_POINTS) break;
+  }
+
+  return features;
+}
+
+function descriptorDistance(a, b) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const delta = a[i] - b[i];
+    sum += delta * delta;
+  }
+  return sum;
+}
+
+function nearestTwo(feature, targets) {
+  let bestIndex = -1;
+  let best = Infinity;
+  let second = Infinity;
+
+  for (let index = 0; index < targets.length; index += 1) {
+    const distance = descriptorDistance(feature.descriptor, targets[index].descriptor);
+    if (distance < best) {
+      second = best;
+      best = distance;
+      bestIndex = index;
+    } else if (distance < second) {
+      second = distance;
+    }
+  }
+
+  return { bestIndex, best, second };
+}
+
+function matchSingleViews(leftFeatures, rightFeatures) {
+  if (leftFeatures.length < 5 || rightFeatures.length < 5) return [];
+
+  const forward = leftFeatures.map((feature) => nearestTwo(feature, rightFeatures));
+  const reverse = rightFeatures.map((feature) => nearestTwo(feature, leftFeatures));
+  const matches = [];
+
+  forward.forEach((candidate, leftIndex) => {
+    if (candidate.bestIndex < 0 || !Number.isFinite(candidate.second)) return;
+    if (candidate.best > candidate.second * 0.78) return;
+
+    const back = reverse[candidate.bestIndex];
+    if (!back || back.bestIndex !== leftIndex || !Number.isFinite(back.second)) return;
+    if (back.best > back.second * 0.82) return;
+
+    const left = leftFeatures[leftIndex];
+    const right = rightFeatures[candidate.bestIndex];
+    matches.push({
+      leftX: left.x,
+      leftY: left.y,
+      rightX: right.x,
+      rightY: right.y,
+      distance: candidate.best,
+    });
+  });
+
+  return matches;
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function compareFeatureFrames(left, right) {
+  let totalMatches = 0;
+  let matchedDirections = 0;
+  const residuals = [];
+
+  left.views.forEach((leftView) => {
+    let best = null;
+
+    right.views.forEach((rightView) => {
+      const matches = matchSingleViews(leftView.features, rightView.features);
+      if (!best || matches.length > best.matches.length) {
+        best = { matches, rightView };
+      }
+    });
+
+    if (!best || best.matches.length < 3) return;
+
+    matchedDirections += 1;
+    totalMatches += best.matches.length;
+
+    const dx = best.matches.map((match) => match.rightX - match.leftX);
+    const dy = best.matches.map((match) => match.rightY - match.leftY);
+    const medianDx = median(dx);
+    const medianDy = median(dy);
+
+    best.matches.forEach((match) => {
+      residuals.push(Math.hypot(
+        (match.rightX - match.leftX) - medianDx,
+        (match.rightY - match.leftY) - medianDy,
+      ));
+    });
+  });
+
+  const residual = median(residuals);
+  let state = 'attention';
+  if (totalMatches >= FEATURE_GOOD_MATCHES && matchedDirections >= 2) state = 'good';
+  else if (totalMatches < FEATURE_WEAK_MATCHES || matchedDirections === 0) state = 'weak';
+
+  return {
+    matches: totalMatches,
+    matchedDirections,
+    residual,
+    parallaxCandidate: totalMatches >= FEATURE_WEAK_MATCHES && residual >= PARALLAX_PROXY_THRESHOLD,
+    state,
+  };
+}
+
+async function buildFeatureFrame(time, maps) {
+  const panorama = await captureFeaturePanorama(time);
+  const views = maps.map((map, index) => {
+    const gray = projectPerspective(panorama, map);
+    const features = detectLocalFeatures(gray, FEATURE_VIEW_SIZE);
+    return {
+      yaw: FEATURE_VIEW_YAWS[index],
+      features,
+    };
+  });
+
+  return { time, views };
+}
+
+function renderFeatureResult({ frames, pairs, weakCount, parallaxCount, duration }) {
+  featurePanel.hidden = false;
+  featureFrames.textContent = `${frames.length}枚`;
+  featurePairs.textContent = `${pairs.length}組`;
+  featureWeak.textContent = weakCount ? `${weakCount}組` : 'なし';
+  featureParallax.textContent = parallaxCount ? `${parallaxCount}組` : '未確認';
+  featureTimeline.replaceChildren();
+
+  pairs.forEach((pair) => {
+    const segment = document.createElement('div');
+    segment.className = `feature-segment ${pair.state}`;
+    segment.style.flexGrow = String(Math.max(0.5, pair.end - pair.start));
+    segment.title = `${pair.start.toFixed(1)}〜${pair.end.toFixed(1)}秒：対応点 ${pair.matches}`;
+    featureTimeline.append(segment);
+  });
+
+  featureMessage.hidden = false;
+  const weakRatio = weakCount / Math.max(1, pairs.length);
+
+  if (weakRatio <= 0.15 && parallaxCount > 0) {
+    featureMessage.className = 'message-box success';
+    featureMessage.textContent = '透視画像上で局所的な対応点を概ね取得でき、複数区間で視差の候補も確認できました。次は対応点から実際のカメラ姿勢を推定する工程へ進みます。';
+  } else if (weakRatio <= 0.35) {
+    featureMessage.className = 'message-box warning';
+    featureMessage.textContent = '多くの区間で局所対応点を取得できましたが、一部は対応が弱い状態です。次工程では弱い区間を自動分割候補として扱いながら姿勢推定を行います。';
+  } else {
+    featureMessage.className = 'message-box warning';
+    featureMessage.textContent = '局所対応点が少ない区間が複数あります。撮影移動が速い、模様が少ない、動く被写体が多いなどの影響が考えられます。次工程では区間分割と追加キーフレームを併用します。';
+  }
+
+  if (duration > 300) {
+    const note = document.createElement('p');
+    note.className = 'feature-long-note';
+    note.textContent = '長時間動画では、連続性チェックで選ばれたキーフレームだけを局所解析しています。全フレームをメモリに保持していません。';
+    featureMessage.insertAdjacentElement('afterend', note);
+  }
+}
+
+async function runFeatureAnalysis(continuityResult, duration, generation) {
+  clearFeatureAnalysis();
+  featurePanel.hidden = false;
+  featureFrames.textContent = '準備中';
+  featurePairs.textContent = '—';
+  featureWeak.textContent = '確認中';
+  featureParallax.textContent = '確認中';
+
+  const times = selectFeatureTimes(continuityResult, duration);
+  const maps = getPerspectiveMaps();
+  const frames = [];
+
+  setProgress(67, '360°画像を透視画像へ展開しています');
+
+  for (let index = 0; index < times.length; index += 1) {
+    if (generation !== analysisGeneration) return null;
+    frames.push(await buildFeatureFrame(times[index], maps));
+    const percent = 67 + ((index + 1) / times.length) * 23;
+    setProgress(percent, `局所特徴点を抽出しています (${index + 1}/${times.length})`);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  }
+
+  const pairs = [];
+  let weakCount = 0;
+  let parallaxCount = 0;
+
+  for (let index = 0; index < frames.length - 1; index += 1) {
+    if (generation !== analysisGeneration) return null;
+    const result = compareFeatureFrames(frames[index], frames[index + 1]);
+    if (result.state === 'weak') weakCount += 1;
+    if (result.parallaxCandidate) parallaxCount += 1;
+    pairs.push({
+      start: frames[index].time,
+      end: frames[index + 1].time,
+      ...result,
+    });
+    const percent = 90 + ((index + 1) / Math.max(1, frames.length - 1)) * 10;
+    setProgress(percent, `対応点を確認しています (${index + 1}/${Math.max(1, frames.length - 1)})`);
+  }
+
+  renderFeatureResult({ frames, pairs, weakCount, parallaxCount, duration });
+  setProgress(100, '局所特徴点チェックまで完了しました');
+  return { frames, pairs, weakCount, parallaxCount };
+}
+
 async function analyzeVideo(file) {
   hideMessage();
   analysisPanel.hidden = true;
   clearFrames();
   clearContinuity();
+  clearFeatureAnalysis();
 
   if (!file || !supportedVideo(file)) {
     showMessage('error', '動画ファイルを選んでください。Insta360 Studioから書き出したMP4を推奨します。');
@@ -532,7 +975,7 @@ async function analyzeVideo(file) {
   video.src = currentUrl;
   video.preload = 'metadata';
 
-  setProgress(8, '動画を確認しています');
+  setProgress(6, '動画を確認しています');
 
   try {
     await waitForEvent(video, 'loadedmetadata', 15000);
@@ -562,7 +1005,7 @@ async function analyzeVideo(file) {
       return;
     }
 
-    setProgress(22, '代表画像を準備しています');
+    setProgress(15, '代表画像を準備しています');
     const times = choosePreviewTimes(duration);
     for (let index = 0; index < times.length; index += 1) {
       if (generation !== analysisGeneration) return;
@@ -570,8 +1013,10 @@ async function analyzeVideo(file) {
     }
 
     if (resolutionOk && durationOk) {
-      showMessage('success', '360°動画として認識しました。続けて、動画の長さに合わせて画像同士のつながりを自動確認しています。');
-      await runAdaptiveContinuity(duration, generation);
+      showMessage('success', '360°動画として認識しました。連続性と局所特徴点を順番に自動確認します。');
+      const continuityResult = await runAdaptiveContinuity(duration, generation);
+      if (!continuityResult || generation !== analysisGeneration) return;
+      await runFeatureAnalysis(continuityResult, duration, generation);
     } else {
       setProgress(100, '素材の確認が完了しました');
       showMessage('warning', '360°動画として読み込めましたが、3D化には素材が不足する可能性があります。できれば5秒以上、より高い解像度で撮影してください。');
@@ -581,6 +1026,7 @@ async function analyzeVideo(file) {
     setProgress(0, '読み込みできませんでした');
     analysisPanel.hidden = true;
     clearContinuity();
+    clearFeatureAnalysis();
     showMessage('error', error?.message || '動画を確認できませんでした。');
   }
 }
