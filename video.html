@@ -4,10 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="360°動画をブラウザ内で確認し、代表フレーム、連続性、局所特徴点を自動解析する360GS" />
+  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢まで自動解析する360GS" />
   <title>360GS | 360°動画を確認</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./video.css" />
+  <link rel="stylesheet" href="./pose.css" />
 </head>
 <body>
   <header class="app-header">
@@ -15,7 +16,7 @@
       <div class="brand">360GS</div>
       <div class="brand-sub">360°動画から3D空間を作る準備</div>
     </div>
-    <span class="version">Prototype v0.2c</span>
+    <span class="version">Prototype v0.2d</span>
   </header>
 
   <main class="video-shell">
@@ -25,11 +26,11 @@
     </div>
 
     <section class="video-hero">
-      <p class="eyebrow">Step 3 / 撮影位置推定の準備</p>
-      <h1>360°動画から、対応点まで自動で確認します。</h1>
+      <p class="eyebrow">Step 4 / 相対カメラ姿勢</p>
+      <h1>360°動画から、撮影時の動きまで自動推定します。</h1>
       <p>
-        動画時間に合わせた連続性チェックに加え、360°画像を4方向の透視画像へ展開し、
-        局所的な特徴点が次のフレームでも見つかるかを自動確認します。短い動画でも長い動画でも設定は不要です。
+        連続性と局所特徴点を確認した後、対応点を360°カメラ座標へ戻し、幾何学的に整合する対応だけを残して
+        隣接キーフレーム間の相対回転と移動方向を推定します。短い動画でも長い動画でも設定は不要です。
       </p>
     </section>
 
@@ -70,9 +71,9 @@
       <div class="next-step-note">
         <h3>この版で行っていること</h3>
         <p>
-          確認用の代表画像とは別に、3D化判定用の低解像度フレームを内部で解析します。
-          最初に動画全体を粗く確認し、つながりが弱い区間だけ追加解析します。その後、
-          選ばれたキーフレームを4方向の透視画像へ展開し、局所的な対応点と視差の候補を確認します。
+          代表画像の抽出、動画全体の連続性確認、透視画像上の局所特徴点対応に続き、
+          対応点を360°カメラの単位方向ベクトルへ変換します。RANSACで外れ対応を除外し、
+          Essential matrixから相対回転と移動方向を推定します。絶対距離のスケールはまだ求めません。
         </p>
       </div>
 
@@ -97,22 +98,10 @@
         </p>
 
         <div class="continuity-stats">
-          <div class="continuity-stat">
-            <span>解析モード</span>
-            <strong id="continuity-mode">—</strong>
-          </div>
-          <div class="continuity-stat">
-            <span>内部確認フレーム</span>
-            <strong id="continuity-count">—</strong>
-          </div>
-          <div class="continuity-stat">
-            <span>自動追加</span>
-            <strong id="continuity-added">—</strong>
-          </div>
-          <div class="continuity-stat">
-            <span>つながりが弱い区間</span>
-            <strong id="continuity-weak">—</strong>
-          </div>
+          <div class="continuity-stat"><span>解析モード</span><strong id="continuity-mode">—</strong></div>
+          <div class="continuity-stat"><span>内部確認フレーム</span><strong id="continuity-count">—</strong></div>
+          <div class="continuity-stat"><span>自動追加</span><strong id="continuity-added">—</strong></div>
+          <div class="continuity-stat"><span>つながりが弱い区間</span><strong id="continuity-weak">—</strong></div>
         </div>
 
         <div class="continuity-legend" aria-hidden="true">
@@ -140,22 +129,10 @@
         </p>
 
         <div class="continuity-stats">
-          <div class="continuity-stat">
-            <span>局所解析キーフレーム</span>
-            <strong id="feature-frames">—</strong>
-          </div>
-          <div class="continuity-stat">
-            <span>比較したフレーム組</span>
-            <strong id="feature-pairs">—</strong>
-          </div>
-          <div class="continuity-stat">
-            <span>対応が弱い組</span>
-            <strong id="feature-weak">—</strong>
-          </div>
-          <div class="continuity-stat">
-            <span>視差候補</span>
-            <strong id="feature-parallax">—</strong>
-          </div>
+          <div class="continuity-stat"><span>局所解析キーフレーム</span><strong id="feature-frames">—</strong></div>
+          <div class="continuity-stat"><span>比較したフレーム組</span><strong id="feature-pairs">—</strong></div>
+          <div class="continuity-stat"><span>対応が弱い組</span><strong id="feature-weak">—</strong></div>
+          <div class="continuity-stat"><span>視差候補</span><strong id="feature-parallax">—</strong></div>
         </div>
 
         <div class="continuity-legend" aria-hidden="true">
@@ -166,13 +143,53 @@
         <div id="feature-timeline" class="continuity-timeline" aria-label="局所特徴点の対応状況"></div>
         <div id="feature-message" class="message-box" aria-live="polite" hidden></div>
       </section>
+
+      <section id="pose-panel" class="pose-panel" aria-labelledby="pose-title" hidden>
+        <div class="pose-heading">
+          <div>
+            <p class="eyebrow">相対カメラ姿勢推定</p>
+            <h3 id="pose-title">幾何学的に撮影時の動きを推定</h3>
+          </div>
+          <span class="pose-auto">自動設定</span>
+        </div>
+
+        <p class="pose-description">
+          局所特徴点を360°カメラ座標の方向ベクトルへ変換し、RANSACで幾何学的に矛盾する対応点を除きます。
+          残った対応からEssential matrixを推定し、隣接キーフレーム間の相対回転と移動方向を求めます。
+          この段階では移動距離の絶対スケールは未確定です。
+        </p>
+
+        <div class="pose-stats">
+          <div class="pose-stat"><span>姿勢解析キーフレーム</span><strong id="pose-frames">—</strong></div>
+          <div class="pose-stat"><span>比較した区間</span><strong id="pose-pairs">—</strong></div>
+          <div class="pose-stat"><span>相対姿勢が成立</span><strong id="pose-solved">—</strong></div>
+          <div class="pose-stat"><span>幾何学的内点率・中央値</span><strong id="pose-inlier">—</strong></div>
+          <div class="pose-stat"><span>視差角・中央値</span><strong id="pose-parallax">—</strong></div>
+        </div>
+
+        <div class="pose-legend" aria-hidden="true">
+          <span><i class="pose-legend-dot good"></i>姿勢推定良好</span>
+          <span><i class="pose-legend-dot attention"></i>要確認</span>
+          <span><i class="pose-legend-dot weak"></i>推定が弱い</span>
+        </div>
+        <div id="pose-timeline" class="pose-timeline" aria-label="相対カメラ姿勢推定の状況"></div>
+
+        <div class="pose-path-card">
+          <h4>移動方向プレビュー</h4>
+          <p class="pose-path-help">各区間を同じ長さとして連結した、形状確認用の上面図です。実際の距離や縮尺を表すものではありません。</p>
+          <canvas id="pose-path" aria-label="距離スケールなしの仮カメラ軌跡"></canvas>
+          <p id="pose-path-meta"></p>
+        </div>
+
+        <div id="pose-message" class="message-box" aria-live="polite" hidden></div>
+      </section>
     </section>
 
     <section class="privacy-note video-privacy" aria-label="プライバシー">
       <div class="privacy-mark" aria-hidden="true">✓</div>
       <div>
         <h2>動画はこの端末内だけで処理します</h2>
-        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
+        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢推定の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
       </div>
     </section>
   </main>
@@ -180,5 +197,6 @@
   <video id="source-video" muted playsinline hidden></video>
   <canvas id="capture-canvas" hidden></canvas>
   <script type="module" src="./video.js"></script>
+  <script type="module" src="./pose.js"></script>
 </body>
 </html>
