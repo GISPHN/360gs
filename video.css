@@ -157,7 +157,8 @@
   font-size: 12px;
 }
 
-.continuity-panel {
+.continuity-panel,
+.feature-panel {
   margin-top: 30px;
   padding: 24px;
   border: 1px solid #dbe2ea;
@@ -165,7 +166,12 @@
   background: #f8fafc;
 }
 
-.continuity-panel[hidden] {
+.feature-panel {
+  background: #fff;
+}
+
+.continuity-panel[hidden],
+.feature-panel[hidden] {
   display: none;
 }
 
@@ -249,17 +255,20 @@
 }
 
 .legend-dot.good,
-.continuity-segment.good {
+.continuity-segment.good,
+.feature-segment.good {
   background: #16803c;
 }
 
 .legend-dot.attention,
-.continuity-segment.attention {
+.continuity-segment.attention,
+.feature-segment.attention {
   background: #d97706;
 }
 
 .legend-dot.weak,
-.continuity-segment.weak {
+.continuity-segment.weak,
+.feature-segment.weak {
   background: #b91c1c;
 }
 
@@ -273,16 +282,19 @@
   background: #e5e7eb;
 }
 
-.continuity-segment {
+.continuity-segment,
+.feature-segment {
   min-width: 3px;
   height: 100%;
 }
 
-#continuity-message {
+#continuity-message,
+#feature-message {
   margin-top: 18px;
 }
 
-.continuity-long-note {
+.continuity-long-note,
+.feature-long-note {
   margin: 10px 0 0;
   color: #6b7280;
   font-size: 12px;
