@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="360°写真と3D Gaussian Splattingをブラウザ内で確認できる360GSプロトタイプ" />
-  <title>360GS | 360°写真と3DGS</title>
+  <meta name="description" content="360°写真、360°動画、3D Gaussian Splattingをブラウザ内で扱う360GSプロトタイプ" />
+  <title>360GS | 360°写真・動画と3DGS</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core@5.15.0/index.min.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -13,18 +13,18 @@
   <header class="app-header">
     <div>
       <div class="brand">360GS</div>
-      <div class="brand-sub">360°写真と3D空間を、簡単に見る・保存・共有</div>
+      <div class="brand-sub">360°写真と3D空間を、簡単に見る・作る・共有</div>
     </div>
-    <span class="version">Prototype v0.1b</span>
+    <span class="version">Prototype v0.2a</span>
   </header>
 
   <main class="app-shell">
     <section id="home-screen" class="screen active" aria-labelledby="home-title">
       <div class="hero">
-        <p class="eyebrow">Prototype v0.1b</p>
-        <h1 id="home-title">360°写真も、3D空間も、ファイルを選ぶだけ。</h1>
+        <p class="eyebrow">Prototype v0.2a</p>
+        <h1 id="home-title">360°写真も、360°動画も、ファイルを選ぶだけ。</h1>
         <p class="hero-copy">
-          選択した360°写真や3DGSファイルは、このブラウザ内で処理します。この版では自分のファイルをサーバーへアップロードしません。
+          360°写真と3DGSはその場で表示できます。360°動画は3D化に向けて形式を自動確認し、代表画像を自動抽出します。自分のファイルはこの段階ではサーバーへアップロードしません。
         </p>
       </div>
 
@@ -41,10 +41,10 @@
           <span class="card-description">PLY / Compressed PLY / SOGを端末内で表示</span>
         </button>
 
-        <button class="action-card disabled-card" type="button" disabled aria-disabled="true">
+        <button class="action-card primary-card" type="button" onclick="window.location.href='./video.html'">
           <span class="card-icon" aria-hidden="true">動画</span>
           <span class="card-title">360°動画から3Dを作る</span>
-          <span class="card-description">次の開発段階で追加します</span>
+          <span class="card-description">まず動画を自動確認し、3D化に使う代表画像を抽出</span>
         </button>
       </div>
 
@@ -59,8 +59,8 @@
       <section class="privacy-note" aria-label="プライバシー">
         <div class="privacy-mark" aria-hidden="true">✓</div>
         <div>
-          <h2>この版では自分の写真・3DGSを外部に送りません</h2>
-          <p>選択したファイルは端末内のブラウザで表示するためだけに使い、ページを閉じると読み込み状態は消えます。</p>
+          <h2>この版では自分の写真・動画・3DGSを外部に送りません</h2>
+          <p>選択したファイルは端末内のブラウザで表示・解析するためだけに使い、ページを閉じると読み込み状態は消えます。</p>
         </div>
       </section>
     </section>
