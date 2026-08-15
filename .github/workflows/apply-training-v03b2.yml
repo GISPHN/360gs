@@ -19,21 +19,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Apply patch
-        run: python scripts/patch-training-v03b2.py
+      - name: Apply compatibility patch
+        run: python scripts/patch-training-v03b2-compat.py
       - name: Validate JavaScript
         run: node --check training.js
-      - name: Verify version wiring
+      - name: Verify compatibility wiring
         run: |
-          grep -q 'Prototype v0.3b2' video.html
+          grep -q 'progressApi' training.js
+          grep -q "iters:4500" training.js
           grep -q 'training.js?v=0.3b2' video.html
-          grep -q 'video.html?v=0.3b2' index.html
-          grep -q 'trainSteps(0)' training.js
       - name: Commit patch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add training.js video.html index.html
-          git commit -m "Add staged Brush loading diagnostics and watchdog"
+          git add training.js
+          git commit -m "Add Brush startup fallback and conservative training plan"
           git pull --rebase origin main
           git push origin HEAD:main
