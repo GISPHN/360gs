@@ -1,0 +1,40 @@
+name: Apply v0.3c1 viewer auto framing
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-v03c1-viewer.yml'
+      - 'tools/patch_v03c1_viewer.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply viewer patch
+        run: python tools/patch_v03c1_viewer.py
+
+      - name: Validate JavaScript
+        run: node --check training.js
+
+      - name: Commit viewer update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js training.css video.html index.html README.md
+          if git diff --cached --quiet; then
+            echo "v0.3c1 viewer output is unchanged."
+          else
+            git commit -m "Add v0.3c1 robust 3DGS viewer framing"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
