@@ -29,37 +29,7 @@ jobs:
 
       - name: Patch Brush progress API for 360GS
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('_brush/apps/brush-js/src/lib.rs')
-          text = path.read_text(encoding='utf-8')
-          old = '''                    out.push(BrushMessage { inner: msg });
-                    if is_step {
-                        steps_taken += 1;
-                        if steps_taken >= steps {
-                            return Ok(out);
-                        }
-                    }
-'''
-          new = '''                    out.push(BrushMessage { inner: msg });
-                    // 360GS extension: steps == 0 means "return the next visible
-                    // process message immediately". This lets the browser show
-                    // dataset loading / initial-splat progress before the first
-                    // expensive training step instead of appearing frozen.
-                    if steps == 0 {
-                        return Ok(out);
-                    }
-                    if is_step {
-                        steps_taken += 1;
-                        if steps_taken >= steps {
-                            return Ok(out);
-                        }
-                    }
-'''
-          if old not in text:
-              raise SystemExit('Brush train_steps patch target not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
+          python -c "from pathlib import Path; p=Path('_brush/apps/brush-js/src/lib.rs'); s=p.read_text(); n='                    out.push(BrushMessage { inner: msg });\\n'; assert n in s, 'patch target not found'; p.write_text(s.replace(n, n + '                    if steps == 0 { return Ok(out); }\\n', 1))"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
