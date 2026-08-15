@@ -27,6 +27,40 @@ jobs:
           path: _brush
           lfs: false
 
+      - name: Patch Brush progress API for 360GS
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('_brush/apps/brush-js/src/lib.rs')
+          text = path.read_text(encoding='utf-8')
+          old = '''                    out.push(BrushMessage { inner: msg });
+                    if is_step {
+                        steps_taken += 1;
+                        if steps_taken >= steps {
+                            return Ok(out);
+                        }
+                    }
+'''
+          new = '''                    out.push(BrushMessage { inner: msg });
+                    // 360GS extension: steps == 0 means "return the next visible
+                    // process message immediately". This lets the browser show
+                    // dataset loading / initial-splat progress before the first
+                    // expensive training step instead of appearing frozen.
+                    if steps == 0 {
+                        return Ok(out);
+                    }
+                    if is_step {
+                        steps_taken += 1;
+                        if steps_taken >= steps {
+                            return Ok(out);
+                        }
+                    }
+'''
+          if old not in text:
+              raise SystemExit('Brush train_steps patch target not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,6 +83,7 @@ jobs:
           printf '%s\n' \
             'Brush JavaScript/WebAssembly runtime.' \
             'Built from ArthurBrussee/brush commit 3da02ecfe91aae9c011a8c8c482d82860b88eb1f.' \
+            '360GS extension: trainSteps(0) returns the next visible loading/progress message.' \
             'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
             > vendor/brush-js/BUILD_INFO.txt
 
@@ -60,7 +95,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "Brush runtime is unchanged."
           else
-            git commit -m "Build pinned Brush WebAssembly runtime"
+            git commit -m "Build Brush runtime with loading progress"
             git pull --rebase origin main
             git push origin HEAD:main
           fi
