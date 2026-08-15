@@ -15,16 +15,16 @@
       <div class="brand">360GS</div>
       <div class="brand-sub">360°写真と3D空間を、簡単に見る・作る・共有</div>
     </div>
-    <span class="version">Prototype v0.2i</span>
+    <span class="version">Prototype v0.3a</span>
   </header>
 
   <main class="app-shell">
     <section id="home-screen" class="screen active" aria-labelledby="home-title">
       <div class="hero">
-        <p class="eyebrow">Prototype v0.2i</p>
+        <p class="eyebrow">Prototype v0.3a</p>
         <h1 id="home-title">360°写真も、360°動画も、ファイルを選ぶだけ。</h1>
         <p class="hero-copy">
-          360°写真と3DGSはその場で表示できます。360°動画は長さに合わせて自動解析し、安定した候補区間を局所SfMで再構成します。観測が不足する場合は特徴点を高密度に自動再探索し、複数視点の追跡を増やしてから安全化した全体最適化へ進みます。自分のファイルはこの段階ではサーバーへアップロードしません。
+          360°写真と3DGSはその場で表示できます。360°動画は長さに合わせて自動解析し、特徴点追跡と安全化した全体最適化で安定した区間を選びます。最適化が良好な区間は、3DGS学習用の透視画像・COLMAPカメラ姿勢・初期疎点群を自動生成し、ZIPとして保存できます。自分のファイルはこの段階ではサーバーへアップロードしません。
         </p>
       </div>
 
@@ -44,7 +44,7 @@
         <button class="action-card primary-card" type="button" onclick="window.location.href='./video.html'">
           <span class="card-icon" aria-hidden="true">動画</span>
           <span class="card-title">360°動画から3Dを作る</span>
-          <span class="card-description">特徴点を自動再探索し、安定した観測だけで3D化を準備</span>
+          <span class="card-description">撮影位置を自動推定し、3DGS学習データまで準備</span>
         </button>
       </div>
 
