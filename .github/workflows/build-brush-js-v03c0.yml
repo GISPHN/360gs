@@ -28,6 +28,10 @@ jobs:
           path: _brush
           lfs: false
 
+      - name: Restore v0.3b8 frontend baseline
+        run: |
+          git checkout c2db1e79967705de7212390933056909d7cb1e1d -- training.js video.html index.html README.md
+
       - name: Apply v0.3b9 base patches
         run: python tools/patch_v03b9.py
 
