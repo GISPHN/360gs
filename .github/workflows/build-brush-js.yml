@@ -61,5 +61,6 @@ jobs:
             echo "Brush runtime is unchanged."
           else
             git commit -m "Build pinned Brush WebAssembly runtime"
-            git push
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
