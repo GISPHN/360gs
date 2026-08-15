@@ -60,7 +60,83 @@ function trYaw(d){const a=d*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return[c,0,s
 function trQuat(R){const t=R[0]+R[4]+R[8];let w,x,y,z;if(t>0){const s=Math.sqrt(t+1)*2;w=.25*s;x=(R[7]-R[5])/s;y=(R[2]-R[6])/s;z=(R[3]-R[1])/s;}else if(R[0]>R[4]&&R[0]>R[8]){const s=Math.sqrt(1+R[0]-R[4]-R[8])*2;w=(R[7]-R[5])/s;x=.25*s;y=(R[1]+R[3])/s;z=(R[2]+R[6])/s;}else if(R[4]>R[8]){const s=Math.sqrt(1+R[4]-R[0]-R[8])*2;w=(R[2]-R[6])/s;x=(R[1]+R[3])/s;y=.25*s;z=(R[5]+R[7])/s;}else{const s=Math.sqrt(1+R[8]-R[0]-R[4])*2;w=(R[3]-R[1])/s;x=(R[2]+R[6])/s;y=(R[5]+R[7])/s;z=.25*s;}const n=Math.hypot(w,x,y,z)||1;return[w/n,x/n,y/n,z/n];}
 
 async function trSeek(time){if(!trVideo||!Number.isFinite(trVideo.duration))throw new Error('動画を参照できません。');const v=Math.max(0,Math.min(trVideo.duration-.001,time));if(Math.abs(trVideo.currentTime-v)<.008&&trVideo.readyState>=2)return;await new Promise((res,rej)=>{const tm=setTimeout(()=>{off();rej(new Error('学習用フレーム取得がタイムアウトしました。'));},12000);const ok=()=>{off();res();},ng=()=>{off();rej(new Error('動画フレームを取得できません。'));},off=()=>{clearTimeout(tm);trVideo.removeEventListener('seeked',ok);trVideo.removeEventListener('error',ng);};trVideo.addEventListener('seeked',ok,{once:true});trVideo.addEventListener('error',ng,{once:true});trVideo.currentTime=v;});}
-function trRenderer(size){const c=document.createElement('canvas');c.width=size;c.height=size;const g=c.getContext('webgl',{alpha:false,preserveDrawingBuffer:true,antialias:false});if(!g)throw new Error('WebGLを利用できません。');const C=(t,s)=>{const h=g.createShader(t);g.shaderSource(h,s);g.compileShader(h);if(!g.getShaderParameter(h,g.COMPILE_STATUS))throw new Error('透視変換シェーダーを作成できません。');return h;};const p=g.createProgram();g.attachShader(p,C(g.VERTEX_SHADER,'attribute vec2 a;varying vec2 u;void main(){u=a*.5+.5;gl_Position=vec4(a,0.,1.);}'));g.attachShader(p,C(g.FRAGMENT_SHADER,'precision highp float;varying vec2 u;uniform sampler2D p;uniform float y;uniform float f;const float PI=3.141592653589793;void main(){vec3 l=normalize(vec3((u.x*2.-1.)*f,(u.y*2.-1.)*f,1.));float c=cos(y),s=sin(y);vec3 d=vec3(l.x*c+l.z*s,l.y,-l.x*s+l.z*c);float lo=atan(d.x,d.z),la=asin(clamp(d.y,-1.,1.));gl_FragColor=texture2D(p,vec2(clamp(lo/(2.*PI)+.5,0.,1.),clamp(la/PI+.5,0.,1.)));'));g.linkProgram(p);if(!g.getProgramParameter(p,g.LINK_STATUS))throw new Error('透視変換を初期化できません。');g.useProgram(p);const b=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,b);g.bufferData(g.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),g.STATIC_DRAW);const a=g.getAttribLocation(p,'a');g.enableVertexAttribArray(a);g.vertexAttribPointer(a,2,g.FLOAT,false,0,0);const tx=g.createTexture();g.bindTexture(g.TEXTURE_2D,tx);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MIN_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MAG_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE);g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL,true);g.uniform1i(g.getUniformLocation(p,'p'),0);g.uniform1f(g.getUniformLocation(p,'f'),Math.tan(TR_FOV*Math.PI/360));const yl=g.getUniformLocation(p,'y');g.viewport(0,0,size,size);return{canvas:c,render(v,d){g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,tx);g.texImage2D(g.TEXTURE_2D,0,g.RGB,g.RGB,g.UNSIGNED_BYTE,v);g.uniform1f(yl,d*Math.PI/180);g.drawArrays(g.TRIANGLES,0,6);g.finish();}};}
+function trRenderer(size) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const gl = canvas.getContext('webgl', { alpha: false, preserveDrawingBuffer: true, antialias: false });
+  if (!gl) throw new Error('このブラウザでは学習画像の透視変換に必要なWebGLを利用できません。');
+
+  const vs = `attribute vec2 aPos; varying vec2 vUv; void main(){vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0);}`;
+  const fsHigh = `precision highp float; varying vec2 vUv; uniform sampler2D uPano; uniform float uYaw; uniform float uHalfFov; const float PI=3.141592653589793; void main(){vec3 local=normalize(vec3((vUv.x*2.0-1.0)*uHalfFov,(vUv.y*2.0-1.0)*uHalfFov,1.0));float c=cos(uYaw),s=sin(uYaw);vec3 d=vec3(local.x*c+local.z*s,local.y,-local.x*s+local.z*c);float lon=atan(d.x,d.z);float lat=asin(clamp(d.y,-1.0,1.0));float u=clamp(lon/(2.0*PI)+0.5,0.0,1.0);float v=clamp(lat/PI+0.5,0.0,1.0);gl_FragColor=texture2D(uPano,vec2(u,v));}`;
+  const fsMedium = fsHigh.replace('precision highp float;', 'precision mediump float;');
+
+  const compile = (type, src, label) => {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, src);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      const info = gl.getShaderInfoLog(shader) || '詳細不明';
+      gl.deleteShader(shader);
+      throw new Error(`${label}シェーダーを作成できません: ${info}`);
+    }
+    return shader;
+  };
+
+  const vertex = compile(gl.VERTEX_SHADER, vs, '頂点');
+  let fragment;
+  try {
+    fragment = compile(gl.FRAGMENT_SHADER, fsHigh, '透視変換');
+  } catch (highError) {
+    trLog(`highp shader fallback: ${highError.message}`);
+    fragment = compile(gl.FRAGMENT_SHADER, fsMedium, '透視変換');
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const info = gl.getProgramInfoLog(program) || '詳細不明';
+    throw new Error(`透視変換を初期化できません: ${info}`);
+  }
+  gl.useProgram(program);
+
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(program, 'aPos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.uniform1i(gl.getUniformLocation(program, 'uPano'), 0);
+  gl.uniform1f(gl.getUniformLocation(program, 'uHalfFov'), Math.tan(TR_FOV * Math.PI / 360));
+  const yawLoc = gl.getUniformLocation(program, 'uYaw');
+  gl.viewport(0, 0, size, size);
+
+  return {
+    canvas,
+    render(video, yawDeg) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+      const uploadError = gl.getError();
+      if (uploadError !== gl.NO_ERROR) throw new Error(`動画テクスチャをWebGLへ転送できませんでした (${uploadError})。`);
+      gl.uniform1f(yawLoc, yawDeg * Math.PI / 180);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.finish();
+      const renderError = gl.getError();
+      if (renderError !== gl.NO_ERROR) throw new Error(`透視画像を描画できませんでした (${renderError})。`);
+    },
+  };
+}
 function trJpeg(c){return new Promise((r,j)=>c.toBlob(b=>b?r(b):j(new Error('学習画像を書き出せません。')),'image/jpeg',.9));}
 function trInitPly(tracks){const a=(tracks||[]).filter(t=>t.position?.every(Number.isFinite)).slice(0,5000);const h=`ply\nformat ascii 1.0\nelement vertex ${a.length}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;return new Blob([h,a.map(t=>`${t.position[0]} ${t.position[1]} ${t.position[2]} 160 160 160`).join('\n'),'\n'],{type:'application/octet-stream'});}
 async function trDir(p,n){return p.getDirectoryHandle(n,{create:true});}
@@ -68,7 +144,7 @@ async function trWrite(root,path,data){const q=path.split('/');let d=root;for(le
 async function trBuildDataset(item,id){if(!navigator.storage?.getDirectory)throw new Error('ブラウザ内の一時学習領域を利用できません。Chrome / Edgeを使用してください。');const root=await navigator.storage.getDirectory(),base=await trDir(root,'360gs-brush'),dn=`segment-${item.source.segment.id}`;try{await base.removeEntry(dn,{recursive:true});}catch{}const dir=await trDir(base,dn),sel=trSelect(Math.min(item.optimization.poses.length,item.source.frames.length));const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,rr=trRenderer(size),focal=(size/2)/Math.tan(TR_FOV*Math.PI/360);await trWrite(dir,'sparse/0/cameras.txt',`# CAMERA_ID MODEL WIDTH HEIGHT PARAMS\n1 PINHOLE ${size} ${size} ${focal} ${focal} ${size/2} ${size/2}\n`);await trWrite(dir,'sparse/0/points3D.txt','# Empty points; init.ply supplies initialization.\n');await trWrite(dir,'init.ply',trInitPly(item.optimization.tracks));const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;for(let o=0;o<sel.length;o++){if(id!==trRunId)throw new Error('処理が更新されました。');const fi=sel[o],pose=item.optimization.poses[fi],tm=item.source.frames[fi].time;await trSeek(tm);for(let k=0;k<4;k++){rr.render(trVideo,TR_YAWS[k]);const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${TR_NAMES[k]}.jpg`;await trWrite(dir,`images/${name}`,blob);const R=trT(trMul(pose.cameraToWorld,trYaw(TR_YAWS[k]))),pv=trMv(R,pose.position),q=trQuat(R);lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');iid++;made++;trProgress(2+8*made/(sel.length*4),`Brush用データを準備しています ${made}/${sel.length*4}`);await new Promise(r=>setTimeout(r,0));}}await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');return{dir,views:sel.length*4,size};}
 
 function trPlan(size){const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;if(m>=12&&c>=8)return{iters:8000,max:750000,res:size,label:'高品質'};if(m>=8&&c>=6)return{iters:6000,max:500000,res:Math.min(size,1024),label:'標準'};return{iters:3500,max:250000,res:Math.min(size,768),label:'軽量'};}
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3b`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default();const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();app.initExisting(ad,dev,dev.queue);trRuntime={mod,device:dev,app};return trRuntime;}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3b1`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default();const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();app.initExisting(ad,dev,dev.queue);trRuntime={mod,device:dev,app};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){const p=trPanel(),k=trKind(rt.mod,msg);if(k==='DatasetLoaded')p.querySelector('#train-views').textContent=`${msg.trainViews??0}枚`;if((k==='SplatsUpdated'||k==='RefineStep')&&msg.numSplats!=null)p.querySelector('#train-splats').textContent=Number(msg.numSplats).toLocaleString();if(k==='TrainStep'){const i=msg.iter??0;p.querySelector('#train-iter').textContent=`${i.toLocaleString()} / ${plan.iters.toLocaleString()}`;if(msg.elapsedMs!=null)p.querySelector('#train-elapsed').textContent=`${(msg.elapsedMs/1000).toFixed(1)}秒`;trProgress(10+87*i/plan.iters,`3DGSを学習しています ${Math.min(100,Math.round(i/plan.iters*100))}%`);}if(k==='EvalResult'){if(msg.psnr!=null)p.querySelector('#train-psnr').textContent=Number(msg.psnr).toFixed(2);if(msg.ssim!=null)p.querySelector('#train-ssim').textContent=Number(msg.ssim).toFixed(3);}if(k==='Warning'&&msg.text){trLog(`Brush warning: ${msg.text}`);}}
 function trTogglePause(){if(!trRunning)return;trPaused=!trPaused;const b=trPanel().querySelector('#train-pause');b.textContent=trPaused?'再開':'一時停止';if(!trPaused&&trResume){trResume();trResume=null;}trMsg(trPaused?'学習を一時停止しました。':'学習を再開しました。',trPaused?'warning':'success');}
@@ -88,5 +164,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3b');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3b1');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
