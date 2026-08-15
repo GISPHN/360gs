@@ -141,10 +141,10 @@ function trJpeg(c){return new Promise((r,j)=>c.toBlob(b=>b?r(b):j(new Error('学
 function trInitPly(tracks){const a=(tracks||[]).filter(t=>t.position?.every(Number.isFinite)).slice(0,5000);const h=`ply\nformat ascii 1.0\nelement vertex ${a.length}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;return new Blob([h,a.map(t=>`${t.position[0]} ${t.position[1]} ${t.position[2]} 160 160 160`).join('\n'),'\n'],{type:'application/octet-stream'});}
 async function trDir(p,n){return p.getDirectoryHandle(n,{create:true});}
 async function trWrite(root,path,data){const q=path.split('/');let d=root;for(let i=0;i<q.length-1;i++)d=await trDir(d,q[i]);const f=await d.getFileHandle(q.at(-1),{create:true}),w=await f.createWritable();await w.write(data);await w.close();}
-async function trBuildDataset(item,id){if(!navigator.storage?.getDirectory)throw new Error('ブラウザ内の一時学習領域を利用できません。Chrome / Edgeを使用してください。');const root=await navigator.storage.getDirectory(),base=await trDir(root,'360gs-brush'),dn=`segment-${item.source.segment.id}`;try{await base.removeEntry(dn,{recursive:true});}catch{}const dir=await trDir(base,dn),sel=trSelect(Math.min(item.optimization.poses.length,item.source.frames.length));const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,rr=trRenderer(size),focal=(size/2)/Math.tan(TR_FOV*Math.PI/360);await trWrite(dir,'sparse/0/cameras.txt',`# CAMERA_ID MODEL WIDTH HEIGHT PARAMS\n1 PINHOLE ${size} ${size} ${focal} ${focal} ${size/2} ${size/2}\n`);await trWrite(dir,'sparse/0/points3D.txt','# Empty points; init.ply supplies initialization.\n');await trWrite(dir,'init.ply',trInitPly(item.optimization.tracks));const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;for(let o=0;o<sel.length;o++){if(id!==trRunId)throw new Error('処理が更新されました。');const fi=sel[o],pose=item.optimization.poses[fi],tm=item.source.frames[fi].time;await trSeek(tm);for(let k=0;k<4;k++){rr.render(trVideo,TR_YAWS[k]);const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${TR_NAMES[k]}.jpg`;await trWrite(dir,`images/${name}`,blob);const R=trT(trMul(pose.cameraToWorld,trYaw(TR_YAWS[k]))),pv=trMv(R,pose.position),q=trQuat(R);lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');iid++;made++;trProgress(2+8*made/(sel.length*4),`Brush用データを準備しています ${made}/${sel.length*4}`);await new Promise(r=>setTimeout(r,0));}}await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');return{dir,views:sel.length*4,size};}
+async function trBuildDataset(item,id){if(!navigator.storage?.getDirectory)throw new Error('ブラウザ内の一時学習領域を利用できません。Chrome / Edgeを使用してください。');const root=await navigator.storage.getDirectory(),base=await trDir(root,'360gs-brush'),dn=`segment-${item.source.segment.id}`;try{await base.removeEntry(dn,{recursive:true});}catch{}const dir=await trDir(base,dn),sel=trSelect(Math.min(item.optimization.poses.length,item.source.frames.length));const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,rr=trRenderer(size),focal=(size/2)/Math.tan(TR_FOV*Math.PI/360);await trWrite(dir,'sparse/0/cameras.txt',`# CAMERA_ID MODEL WIDTH HEIGHT PARAMS\n1 PINHOLE ${size} ${size} ${focal} ${focal} ${size/2} ${size/2}\n`);await trWrite(dir,'sparse/0/points3D.txt','# Empty points; Brush random initialization is used for browser training.\n');const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;for(let o=0;o<sel.length;o++){if(id!==trRunId)throw new Error('処理が更新されました。');const fi=sel[o],pose=item.optimization.poses[fi],tm=item.source.frames[fi].time;await trSeek(tm);for(let k=0;k<4;k++){rr.render(trVideo,TR_YAWS[k]);const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${TR_NAMES[k]}.jpg`;await trWrite(dir,`images/${name}`,blob);const R=trT(trMul(pose.cameraToWorld,trYaw(TR_YAWS[k]))),pv=trMv(R,pose.position),q=trQuat(R);lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');iid++;made++;trProgress(2+8*made/(sel.length*4),`Brush用データを準備しています ${made}/${sel.length*4}`);await new Promise(r=>setTimeout(r,0));}}await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');return{dir,views:sel.length*4,size};}
 
-function trPlan(size){const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;if(m>=12&&c>=8)return{iters:4500,max:350000,res:Math.min(size,768),label:'標準'};if(m>=8&&c>=6)return{iters:3500,max:250000,res:Math.min(size,640),label:'軽量'};return{iters:2500,max:150000,res:Math.min(size,512),label:'省メモリ'};}
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3b2`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3b2', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();app.initExisting(ad,dev,dev.queue);let progressApi=false;try{const info=await fetch('./vendor/brush-js/BUILD_INFO.txt?v=0.3b2',{cache:'no-store'});progressApi=(await info.text()).includes('trainSteps(0)');}catch{}trRuntime={mod,device:dev,app,progressApi};return trRuntime;}
+function trPlan(size){const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;if(m>=12&&c>=8)return{iters:2000,max:150000,res:Math.min(size,512),label:'互換優先'};if(m>=8&&c>=6)return{iters:1600,max:120000,res:Math.min(size,512),label:'互換優先'};return{iters:1200,max:80000,res:Math.min(size,384),label:'省メモリ'};}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3b3`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3b3', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});let progressApi=false;try{const info=await fetch('./vendor/brush-js/BUILD_INFO.txt?v=0.3b3',{cache:'no-store'});progressApi=(await info.text()).includes('trainSteps(0)');}catch{}trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -187,17 +187,30 @@ function trApply(rt,msg,plan){
   if(k==='Warning'&&msg.text)trLog(`Brush warning: ${msg.text}`);
 }
 
-async function trWaitStage(promise, timeoutMs, label, training){
-  let timer;
+async function trWaitStage(promise, timeoutMs, label, training, rt){
+  let timer,heartbeat;
+  const started=performance.now();
+  const p=trPanel();
+  const tick=()=>{
+    const sec=Math.max(0,Math.floor((performance.now()-started)/1000));
+    const maxSec=Math.round(timeoutMs/1000);
+    p?.querySelector('#train-elapsed') && (p.querySelector('#train-elapsed').textContent=`${sec}秒`);
+    const base=label.includes('GPU')?20:12;
+    trProgress(base,`${label}を実行中（${sec}秒 / 最大${maxSec}秒）`);
+  };
+  tick();
+  heartbeat=setInterval(tick,1000);
   const timeout=new Promise((_,reject)=>{
     timer=setTimeout(()=>{
       try{training?.free();}catch{}
       if(trTraining===training)trTraining=null;
-      reject(new Error(`${label}が${Math.round(timeoutMs/60000)}分以上応答しませんでした。処理を安全に停止しました。GPU・ブラウザ・データ初期化の互換性を確認します。`));
+      reject(new Error(`${label}が${Math.round(timeoutMs/60000)}分以上応答しませんでした。処理を安全に停止しました。`));
     },timeoutMs);
   });
-  try{return await Promise.race([promise,timeout]);}
-  finally{clearTimeout(timer);}
+  const races=[promise,timeout];
+  if(rt?.lostPromise)races.push(rt.lostPromise);
+  try{return await Promise.race(races);}
+  finally{clearTimeout(timer);clearInterval(heartbeat);}
 }
 
 function trTogglePause(){if(!trRunning)return;trPaused=!trPaused;const b=trPanel().querySelector('#train-pause');b.textContent=trPaused?'再開':'一時停止';if(!trPaused&&trResume){trResume();trResume=null;}trMsg(trPaused?'学習を一時停止しました。':'学習を再開しました。',trPaused?'warning':'success');}
@@ -246,8 +259,8 @@ async function trRun(item){
       if('total-train-iters'in c)c['total-train-iters']=plan.iters;
       if('max-splats'in c)c['max-splats']=plan.max;
       if('max-resolution'in c)c['max-resolution']=plan.res;
-      if('eval-every'in c)c['eval-every']=Math.max(500,Math.floor(plan.iters/4));
-      trLog(`Training config: ${plan.iters} iterations / max ${plan.max.toLocaleString()} splats / ${plan.res}px`);
+      if('eval-every'in c)c['eval-every']=Math.max(500,Math.floor(plan.iters/4));if('sh-degree'in c)c['sh-degree']=0;
+      trLog(`Training config: ${plan.iters} iterations / max ${plan.max.toLocaleString()} splats / ${plan.res}px / SH degree 0 / random initialization`);
       return c;
     });
     trTraining=t;
@@ -257,7 +270,7 @@ async function trRun(item){
     if(rt.progressApi){
       trLog('Brush staged loading progress API available');
       while(!loaded&&!trCancelled){
-        const msgs=await trWaitStage(t.trainSteps(0),120000,'Brushのデータ読み込み',t);
+        const msgs=await trWaitStage(t.trainSteps(0),120000,'Brushのデータ読み込み',t,rt);
         if(!msgs.length)throw new Error('Brushのデータ読み込みストリームが学習開始前に終了しました。');
         for(const m of msgs){
           const kind=trKind(rt.mod,m);
@@ -284,7 +297,7 @@ async function trRun(item){
       const batch=firstStep?1:TR_BATCH;
       const waitMs=firstStep?300000:180000;
       const label=firstStep?'最初のGPU学習ステップ':'GPU学習ステップ';
-      const msgs=await trWaitStage(t.trainSteps(batch),waitMs,label,t);
+      const msgs=await trWaitStage(t.trainSteps(batch),waitMs,label,t,rt);
       if(!msgs.length)break;
       for(const m of msgs){
         trApply(rt,m,plan);
@@ -322,5 +335,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3b2');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3b3');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
