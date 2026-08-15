@@ -1,0 +1,39 @@
+name: Apply training v0.3b2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-training-v03b2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply patch
+        run: python scripts/patch-training-v03b2.py
+      - name: Validate JavaScript
+        run: node --check training.js
+      - name: Verify version wiring
+        run: |
+          grep -q 'Prototype v0.3b2' video.html
+          grep -q 'training.js?v=0.3b2' video.html
+          grep -q 'video.html?v=0.3b2' index.html
+          grep -q 'trainSteps(0)' training.js
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js video.html index.html
+          git commit -m "Add staged Brush loading diagnostics and watchdog"
+          git pull --rebase origin main
+          git push origin HEAD:main
