@@ -1,0 +1,65 @@
+name: Build Brush JS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-brush-js.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout pinned Brush source
+        uses: actions/checkout@v4
+        with:
+          repository: ArthurBrussee/brush
+          ref: 3da02ecfe91aae9c011a8c8c482d82860b88eb1f
+          path: _brush
+          lfs: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Build brush-js for direct browser import
+        run: |
+          rm -rf vendor/brush-js
+          mkdir -p vendor/brush-js
+          wasm-pack build _brush/apps/brush-js \
+            --release \
+            --target web \
+            --out-dir "$GITHUB_WORKSPACE/vendor/brush-js" \
+            --out-name brush_js
+          rm -f vendor/brush-js/.gitignore
+          printf '%s\n' \
+            'Brush JavaScript/WebAssembly runtime.' \
+            'Built from ArthurBrussee/brush commit 3da02ecfe91aae9c011a8c8c482d82860b88eb1f.' \
+            'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
+            > vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated runtime
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/brush-js
+          if git diff --cached --quiet; then
+            echo "Brush runtime is unchanged."
+          else
+            git commit -m "Build pinned Brush WebAssembly runtime"
+            git push
+          fi
