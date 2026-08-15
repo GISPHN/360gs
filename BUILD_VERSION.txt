@@ -1,3 +1,3 @@
-360GS v0.3a2
-Dataset QA wiring fixed
-Build date: 2026-08-15
+360GS v0.3c0
+Browser fixed-Gaussian training mode with lightweight refinement-stat resets
+Build date: 2026-08-16
