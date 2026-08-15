@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build-brush-js-v03b6.yml'
+      - '.github/scripts/patch_brush_v03b6.py'
 
 permissions:
   contents: write
@@ -28,69 +29,7 @@ jobs:
           lfs: false
 
       - name: Patch Brush staged diagnostics
-        run: |
-          python <<'PY'
-          from pathlib import Path
-
-          p = Path('_brush/apps/brush-js/src/lib.rs')
-          s = p.read_text()
-          needle = '                    out.push(BrushMessage { inner: msg });\n'
-          assert needle in s
-          s = s.replace(needle, needle + '                    if steps == 0 { return Ok(out); }\n', 1)
-          p.write_text(s)
-
-          p = Path('_brush/crates/brush-process/src/train_stream.rs')
-          s = p.read_text()
-
-          def emit(stage):
-              return f'''    emitter\n        .emit(ProcessMessage::Warning {{ error: anyhow::anyhow!("360GS_STAGE: {stage}") }})\n        .await;\n'''
-
-          needle = '    // Start with memory cleared out.\n'
-          assert needle in s
-          s = s.replace(needle, emit('post_loading_enter') + '\n' + needle, 1)
-
-          needle = '    let bounds = get_splat_bounds(init_splats.clone(), BOUND_PERCENTILE).await;\n'
-          assert needle in s
-          s = s.replace(needle, emit('bounds_begin') + needle + emit('bounds_done'), 1)
-
-          needle = '    let mut view_cams: Vec<(glam::Vec3, f32)> = Vec::with_capacity(dataset.train.views.len());\n'
-          assert needle in s
-          s = s.replace(needle, emit('view_cams_begin') + needle, 1)
-
-          needle = '    let mut trainer = SplatTrainer::new(&train_stream_config.train_config, &device, bounds);\n'
-          assert needle in s
-          s = s.replace(needle, emit('view_cams_done') + needle + emit('trainer_ready'), 1)
-
-          needle = '''        let batch = dataloader
-            .next_batch()
-            .instrument(trace_span!("Wait for next data batch"))
-            .await;
-'''
-          assert needle in s
-          s = s.replace(needle, '''        if iter == process_config.start_iter {
-''' + emit('first_batch_begin').replace('    ', '            ', 1) + '''        }
-''' + needle + '''        if iter == process_config.start_iter {
-''' + emit('first_batch_ready').replace('    ', '            ', 1) + '''        }
-''', 1)
-
-          needle = '        let diff_splats = brush_render::bwd::burn_glue::lift_splats_to_autodiff(splats);\n'
-          assert needle in s
-          s = s.replace(needle, '''        if iter == process_config.start_iter {
-''' + emit('autodiff_begin').replace('    ', '            ', 1) + '''        }
-''' + needle + '''        if iter == process_config.start_iter {
-''' + emit('autodiff_ready').replace('    ', '            ', 1) + '''        }
-''', 1)
-
-          needle = '        let (new_diff_splats, stats) = trainer.step(batch, diff_splats).await;\n'
-          assert needle in s
-          s = s.replace(needle, '''        if iter == process_config.start_iter {
-''' + emit('trainer_step_begin').replace('    ', '            ', 1) + '''        }
-''' + needle + '''        if iter == process_config.start_iter {
-''' + emit('trainer_step_done').replace('    ', '            ', 1) + '''        }
-''', 1)
-
-          p.write_text(s)
-          PY
+        run: python .github/scripts/patch_brush_v03b6.py
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
