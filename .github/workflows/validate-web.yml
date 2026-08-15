@@ -1,0 +1,36 @@
+name: Validate Web App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '*.js'
+      - '*.html'
+      - '*.css'
+      - '.github/workflows/validate-web.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript syntax
+        run: |
+          for file in *.js; do
+            echo "Checking $file"
+            node --check "$file"
+          done
+      - name: Verify v0.3b training assets
+        run: |
+          test -f training.js
+          test -f training.css
+          grep -q 'training.js?v=0.3b' video.html
+          grep -q 'training.css?v=0.3b' video.html
+          grep -q "'train-panel'" autoscroll.js
