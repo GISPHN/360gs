@@ -1,0 +1,37 @@
+name: Apply v0.3c2 training camera viewer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/patch_v03c2.py'
+      - '.github/workflows/apply-v03c2-viewer.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply viewer patch
+        run: python tools/patch_v03c2.py
+      - name: Validate JavaScript
+        run: node --check training.js
+      - name: Commit viewer update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js training.css video.html index.html BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c2 viewer output unchanged."
+          else
+            git commit -m "Add v0.3c2 training-camera 3DGS viewer"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
