@@ -1,0 +1,3 @@
+Brush JavaScript/WebAssembly runtime.
+Built from ArthurBrussee/brush commit 3da02ecfe91aae9c011a8c8c482d82860b88eb1f.
+Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
