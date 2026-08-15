@@ -1,5 +1,5 @@
 Brush JavaScript/WebAssembly runtime.
 Built from ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS extension: v0.3b8 exposes trainingDiagStage() and staged trainSteps(0) progress.
-wasm-opt is intentionally disabled in CI to avoid multi-hour Binaryen optimization.
+360GS extension: v0.3b9 browser refinement cadence and post-backward diagnostics.
+wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
