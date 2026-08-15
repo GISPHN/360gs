@@ -233,22 +233,20 @@ export interface InitOutput {
     readonly intounderlyingsink_abort: (a: number, b: any) => any;
     readonly intounderlyingsink_close: (a: number) => any;
     readonly intounderlyingsink_write: (a: number, b: any) => any;
-    readonly wasm_bindgen__convert__closures_____invoke__h4afa48c79376c5f9: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h09d4c6d50962bf99: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h09d4c6d50962bf99_4: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h09d4c6d50962bf99_5: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h01d8e95f4d0e6cee: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hfd8b2df9be17234d: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__hfa9e585b81f840dc: (a: number, b: number, c: any) => void;
-    readonly __wbindgen_malloc_command_export: (a: number, b: number) => number;
-    readonly __wbindgen_realloc_command_export: (a: number, b: number, c: number, d: number) => number;
-    readonly __externref_table_alloc_command_export: () => number;
+    readonly wasm_bindgen__convert__closures_____invoke__h4314882a24a558df: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h41fe96eb280ce0a3: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h0b66323f5079b861: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h5c76c14371abf0ca: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hfe2ad65f346edd47: (a: number, b: number, c: any) => void;
+    readonly __wbindgen_malloc: (a: number, b: number) => number;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __wbindgen_exn_store_command_export: (a: number) => void;
-    readonly __wbindgen_free_command_export: (a: number, b: number, c: number) => void;
-    readonly __wbindgen_destroy_closure_command_export: (a: number, b: number) => void;
-    readonly __externref_drop_slice_command_export: (a: number, b: number) => void;
-    readonly __externref_table_dealloc_command_export: (a: number) => void;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_destroy_closure: (a: number, b: number) => void;
+    readonly __externref_drop_slice: (a: number, b: number) => void;
+    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

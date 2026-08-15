@@ -1,4 +1,5 @@
 Brush JavaScript/WebAssembly runtime.
-Built from ArthurBrussee/brush commit 3da02ecfe91aae9c011a8c8c482d82860b88eb1f.
-360GS extension: v0.3b7 exposes trainingDiagStage() for live first-step GPU diagnostics.
+Built from ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
+360GS extension: v0.3b8 exposes trainingDiagStage() and staged trainSteps(0) progress.
+wasm-opt is intentionally disabled in CI to avoid multi-hour Binaryen optimization.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
