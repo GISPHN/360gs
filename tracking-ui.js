@@ -1,12 +1,22 @@
+import './dataset.js';
+
 const trackingSourceVideo = document.querySelector('#source-video');
 
 function trackingEnsureStylesheet() {
-  if (document.querySelector('link[data-360gs-tracking]')) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = './tracking.css';
-  link.dataset['360gsTracking'] = '1';
-  document.head.append(link);
+  if (!document.querySelector('link[data-360gs-tracking]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = './tracking.css';
+    link.dataset['360gsTracking'] = '1';
+    document.head.append(link);
+  }
+  if (!document.querySelector('link[data-360gs-dataset]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = './dataset.css';
+    link.dataset['360gsDataset'] = '1';
+    document.head.append(link);
+  }
 }
 
 function trackingEnsurePanel() {
@@ -125,3 +135,6 @@ window.addEventListener('360gs:ba-ready', () => {
   if (panel && baPanel && panel.nextElementSibling !== baPanel) baPanel.before(panel);
 });
 trackingSourceVideo?.addEventListener('loadedmetadata', trackingReset);
+window.addEventListener('load', () => {
+  document.querySelectorAll('.version').forEach((node) => { node.textContent = 'Prototype v0.3a'; });
+});
