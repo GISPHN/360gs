@@ -71,7 +71,7 @@ s = p.read_text()
 s = replace_once(
     s,
     'pub async fn wait_for_device() -> &\'static WgpuDevice {\n    DEVICE.wait().await\n}\n',
-    'pub async fn wait_for_device() -> &\'static WgpuDevice {\n    DEVICE.wait().await\n}\n\npub fn training_diag_stage() -> u32 {\n    brush_train::training_diag_stage()\n}\n',
+    'pub async fn wait_for_device() -> &\'static WgpuDevice {\n    DEVICE.wait().await\n}\n\npub fn training_diag_stage() -> u32 {\n    brush_train::train::training_diag_stage()\n}\n',
     'brush-process diagnostic re-export',
 )
 p.write_text(s)
