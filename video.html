@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢、自動区間分割、局所SfM、軽量Bundle Adjustmentまで解析する360GS" />
+  <meta name="description" content="360°動画をブラウザ内で確認し、連続性、局所特徴点、相対カメラ姿勢、自動区間分割、局所SfM、高密度特徴追跡、軽量Bundle Adjustmentまで解析する360GS" />
   <title>360GS | 360°動画を確認</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./video.css" />
@@ -19,7 +19,7 @@
       <div class="brand">360GS</div>
       <div class="brand-sub">360°動画から3D空間を作る準備</div>
     </div>
-    <span class="version">Prototype v0.2g</span>
+    <span class="version">Prototype v0.2i</span>
   </header>
 
   <main class="video-shell">
@@ -29,11 +29,11 @@
     </div>
 
     <section class="video-hero">
-      <p class="eyebrow">Step 7 / 全体最適化</p>
-      <h1>局所3D復元を、複数視点の観測でまとめて整えます。</h1>
+      <p class="eyebrow">Step 7 / 特徴点追跡の安定化 → Step 8 / 全体最適化</p>
+      <h1>3D化候補の観測を増やし、安定したものだけ全体最適化へ渡します。</h1>
       <p>
-        局所SfMで再構成できた候補区間について、3フレーム以上で追跡できる特徴をまとめます。
-        360°の方向ベクトル誤差を小さくするように、カメラ姿勢と疎な3D点を同じ目的関数で調整します。
+        局所SfMで再構成できた候補区間について、端末性能に合わせて特徴点を高密度に再探索します。
+        前・右・後・左の偏りを確認しながら複数フレームの追跡を増やし、その後に安全化した軽量Bundle Adjustmentでカメラ姿勢と疎な3D点を調整します。
       </p>
     </section>
 
@@ -75,7 +75,7 @@
         <h3>この版で行っていること</h3>
         <p>
           代表画像、連続性、局所特徴点、相対カメラ姿勢、自動区間分割、局所SfMを順番に行います。
-          その後、3フレーム以上にわたって追跡できた特徴を使い、カメラ姿勢と3D点をロバストな観測誤差で全体調整します。
+          その後、観測が少ない区間では特徴点を高密度に自動再探索し、複数視点の追跡を増やしてから、悪化する更新を戻す軽量Bundle Adjustmentへ進みます。
           極端な視差や外れ観測の影響は抑え、絶対距離スケールはまだ固定しません。
         </p>
       </div>
@@ -94,74 +94,41 @@
           </div>
           <span class="continuity-auto">自動設定</span>
         </div>
-
-        <p class="continuity-description">
-          360°画像の上下端を除いた範囲を低解像度で比較し、カメラの向きが変わっても比較できるよう横方向のずれを補正しながら、
-          次の撮影位置推定に使える連続性があるかを確認します。これは撮影位置そのものではなく、次工程へ進むための事前チェックです。
-        </p>
-
+        <p class="continuity-description">360°画像の上下端を除いた範囲を低解像度で比較し、カメラの向きが変わっても比較できるよう横方向のずれを補正しながら、次の撮影位置推定に使える連続性があるかを確認します。これは撮影位置そのものではなく、次工程へ進むための事前チェックです。</p>
         <div class="continuity-stats">
           <div class="continuity-stat"><span>解析モード</span><strong id="continuity-mode">—</strong></div>
           <div class="continuity-stat"><span>内部確認フレーム</span><strong id="continuity-count">—</strong></div>
           <div class="continuity-stat"><span>自動追加</span><strong id="continuity-added">—</strong></div>
           <div class="continuity-stat"><span>つながりが弱い区間</span><strong id="continuity-weak">—</strong></div>
         </div>
-
-        <div class="continuity-legend" aria-hidden="true">
-          <span><i class="legend-dot good"></i>良好</span>
-          <span><i class="legend-dot attention"></i>要確認</span>
-          <span><i class="legend-dot weak"></i>弱い</span>
-        </div>
+        <div class="continuity-legend" aria-hidden="true"><span><i class="legend-dot good"></i>良好</span><span><i class="legend-dot attention"></i>要確認</span><span><i class="legend-dot weak"></i>弱い</span></div>
         <div id="continuity-timeline" class="continuity-timeline" aria-label="動画全体の連続性"></div>
         <div id="continuity-message" class="message-box" aria-live="polite" hidden></div>
       </section>
 
       <section id="feature-panel" class="feature-panel" aria-labelledby="feature-title" hidden>
         <div class="continuity-heading">
-          <div>
-            <p class="eyebrow">局所特徴点チェック</p>
-            <h3 id="feature-title">透視画像で対応点を自動確認</h3>
-          </div>
+          <div><p class="eyebrow">局所特徴点チェック</p><h3 id="feature-title">透視画像で対応点を自動確認</h3></div>
           <span class="continuity-auto">自動設定</span>
         </div>
-
-        <p class="continuity-description">
-          選ばれた360°キーフレームを前・右・後・左の4方向へ透視投影し、各画像から局所的な特徴点を抽出します。
-          隣接するキーフレームで同じ特徴が見つかるかを確認し、撮影位置推定に使える対応点があるかを評価します。
-          「視差候補」は3D復元に必要な並進成分が含まれる可能性を示す予備指標であり、まだ実際のカメラ位置ではありません。
-        </p>
-
+        <p class="continuity-description">選ばれた360°キーフレームを前・右・後・左の4方向へ透視投影し、各画像から局所的な特徴点を抽出します。隣接するキーフレームで同じ特徴が見つかるかを確認し、撮影位置推定に使える対応点があるかを評価します。「視差候補」は3D復元に必要な並進成分が含まれる可能性を示す予備指標であり、まだ実際のカメラ位置ではありません。</p>
         <div class="continuity-stats">
           <div class="continuity-stat"><span>局所解析キーフレーム</span><strong id="feature-frames">—</strong></div>
           <div class="continuity-stat"><span>比較したフレーム組</span><strong id="feature-pairs">—</strong></div>
           <div class="continuity-stat"><span>対応が弱い組</span><strong id="feature-weak">—</strong></div>
           <div class="continuity-stat"><span>視差候補</span><strong id="feature-parallax">—</strong></div>
         </div>
-
-        <div class="continuity-legend" aria-hidden="true">
-          <span><i class="legend-dot good"></i>対応点が十分</span>
-          <span><i class="legend-dot attention"></i>要確認</span>
-          <span><i class="legend-dot weak"></i>対応が弱い</span>
-        </div>
+        <div class="continuity-legend" aria-hidden="true"><span><i class="legend-dot good"></i>対応点が十分</span><span><i class="legend-dot attention"></i>要確認</span><span><i class="legend-dot weak"></i>対応が弱い</span></div>
         <div id="feature-timeline" class="continuity-timeline" aria-label="局所特徴点の対応状況"></div>
         <div id="feature-message" class="message-box" aria-live="polite" hidden></div>
       </section>
 
       <section id="pose-panel" class="pose-panel" aria-labelledby="pose-title" hidden>
         <div class="pose-heading">
-          <div>
-            <p class="eyebrow">相対カメラ姿勢推定</p>
-            <h3 id="pose-title">幾何学的に撮影時の動きを推定</h3>
-          </div>
+          <div><p class="eyebrow">相対カメラ姿勢推定</p><h3 id="pose-title">幾何学的に撮影時の動きを推定</h3></div>
           <span class="pose-auto">自動設定</span>
         </div>
-
-        <p class="pose-description">
-          局所特徴点を360°カメラ座標の方向ベクトルへ変換し、RANSACで幾何学的に矛盾する対応点を除きます。
-          残った対応からEssential matrixを推定し、隣接キーフレーム間の相対回転と移動方向を求めます。
-          この段階では移動距離の絶対スケールは未確定です。
-        </p>
-
+        <p class="pose-description">局所特徴点を360°カメラ座標の方向ベクトルへ変換し、RANSACで幾何学的に矛盾する対応点を除きます。残った対応からEssential matrixを推定し、隣接キーフレーム間の相対回転と移動方向を求めます。この段階では移動距離の絶対スケールは未確定です。</p>
         <div class="pose-stats">
           <div class="pose-stat"><span>姿勢解析キーフレーム</span><strong id="pose-frames">—</strong></div>
           <div class="pose-stat"><span>比較した区間</span><strong id="pose-pairs">—</strong></div>
@@ -169,21 +136,14 @@
           <div class="pose-stat"><span>幾何学的内点率・中央値</span><strong id="pose-inlier">—</strong></div>
           <div class="pose-stat"><span>視差角・中央値</span><strong id="pose-parallax">—</strong></div>
         </div>
-
-        <div class="pose-legend" aria-hidden="true">
-          <span><i class="pose-legend-dot good"></i>姿勢推定良好</span>
-          <span><i class="pose-legend-dot attention"></i>要確認</span>
-          <span><i class="pose-legend-dot weak"></i>推定が弱い</span>
-        </div>
+        <div class="pose-legend" aria-hidden="true"><span><i class="pose-legend-dot good"></i>姿勢推定良好</span><span><i class="pose-legend-dot attention"></i>要確認</span><span><i class="pose-legend-dot weak"></i>推定が弱い</span></div>
         <div id="pose-timeline" class="pose-timeline" aria-label="相対カメラ姿勢推定の状況"></div>
-
         <div class="pose-path-card">
           <h4>移動方向プレビュー</h4>
           <p class="pose-path-help">各区間を同じ長さとして連結した、形状確認用の上面図です。実際の距離や縮尺を表すものではありません。</p>
           <canvas id="pose-path" aria-label="距離スケールなしの仮カメラ軌跡"></canvas>
           <p id="pose-path-meta"></p>
         </div>
-
         <div id="pose-message" class="message-box" aria-live="polite" hidden></div>
       </section>
     </section>
@@ -192,7 +152,7 @@
       <div class="privacy-mark" aria-hidden="true">✓</div>
       <div>
         <h2>動画はこの端末内だけで処理します</h2>
-        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢、自動区間分割、局所SfM、全体最適化の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
+        <p>選んだ360°動画、代表画像、連続性解析、透視画像、局所特徴点、相対姿勢、自動区間分割、局所SfM、高密度特徴追跡、全体最適化の中間データは、現段階ではGitHubやCloudflareへ送信しません。</p>
       </div>
     </section>
   </main>
@@ -203,6 +163,7 @@
   <script type="module" src="./pose.js"></script>
   <script type="module" src="./segment.js"></script>
   <script type="module" src="./sfm.js"></script>
+  <script type="module" src="./tracking.js"></script>
   <script type="module" src="./ba.js"></script>
 </body>
 </html>
