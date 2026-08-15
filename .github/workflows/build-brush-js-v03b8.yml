@@ -1,0 +1,74 @@
+name: Build Brush JS v0.3b8 stable WebGPU runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-brush-js-v03b8.yml'
+      - 'tools/patch_v03b8.py'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout pinned pre-Spring-clean Brush source
+        uses: actions/checkout@v4
+        with:
+          repository: ArthurBrussee/brush
+          ref: 3b80985709e2ec04fd6c8622a40e36473647a8e0
+          path: _brush
+          lfs: false
+
+      - name: Apply v0.3b8 patches
+        run: python tools/patch_v03b8.py
+
+      - name: Validate JavaScript
+        run: node --check training.js
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Build brush-js
+        run: |
+          rm -rf vendor/brush-js
+          mkdir -p vendor/brush-js
+          wasm-pack build _brush/apps/brush-js \
+            --release \
+            --target web \
+            --out-dir "$GITHUB_WORKSPACE/vendor/brush-js" \
+            --out-name brush_js
+          rm -f vendor/brush-js/.gitignore
+          printf '%s\n' \
+            'Brush JavaScript/WebAssembly runtime.' \
+            'Built from ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.' \
+            '360GS extension: v0.3b8 exposes trainingDiagStage() and staged trainSteps(0) progress.' \
+            'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
+            > vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated runtime and UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/brush-js training.js video.html index.html README.md
+          if git diff --cached --quiet; then
+            echo "v0.3b8 output is unchanged."
+          else
+            git commit -m "Add v0.3b8 stable Brush WebGPU runtime"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
