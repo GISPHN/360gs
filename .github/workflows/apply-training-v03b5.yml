@@ -1,0 +1,35 @@
+name: Apply training v0.3b5
+on:
+  push:
+    paths:
+      - 'scripts/patch-training-v03b5.py'
+      - '.github/workflows/apply-training-v03b5.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply cache bust
+        run: python scripts/patch-training-v03b5.py
+      - name: Validate JavaScript
+        run: node --check training.js
+      - name: Verify runtime wiring
+        run: |
+          grep -q "0.3b5" training.js
+          grep -q "trainSteps(0)" vendor/brush-js/BUILD_INFO.txt
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add training.js video.html index.html
+          git diff --cached --quiet || git commit -m 'Use staged Brush runtime with fresh cache key'
+          git pull --rebase origin main
+          git push origin HEAD:main
