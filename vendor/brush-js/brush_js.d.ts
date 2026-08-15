@@ -185,6 +185,8 @@ export class Training {
     trainSteps(steps: number): Promise<BrushMessage[]>;
 }
 
+export function trainingDiagStage(): number;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -217,6 +219,7 @@ export interface InitOutput {
     readonly brushsplats_shDegree: (a: number) => number;
     readonly training_currentSplats: (a: number) => number;
     readonly training_trainSteps: (a: number, b: number) => any;
+    readonly trainingDiagStage: () => number;
     readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
     readonly intounderlyingsource_cancel: (a: number) => void;
     readonly intounderlyingsource_pull: (a: number, b: any) => any;

@@ -29,6 +29,7 @@ export const brushsplats_numSplats: (a: number) => number;
 export const brushsplats_shDegree: (a: number) => number;
 export const training_currentSplats: (a: number) => number;
 export const training_trainSteps: (a: number, b: number) => any;
+export const trainingDiagStage: () => number;
 export const __wbg_intounderlyingsource_free: (a: number, b: number) => void;
 export const intounderlyingsource_cancel: (a: number) => void;
 export const intounderlyingsource_pull: (a: number, b: any) => any;
