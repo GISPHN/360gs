@@ -34,23 +34,8 @@ jobs:
 
       - name: Disable wasm-opt for CI runtime build
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('_brush/apps/brush-js/Cargo.toml')
-          s = p.read_text()
-          old = '''[package.metadata.wasm-pack.profile.release]
-wasm-opt = [
-    "-Oz",
-    "--converge",
-    "--enable-bulk-memory",
-    "--enable-nontrapping-float-to-int",
-]'''
-          new = '''[package.metadata.wasm-pack.profile.release]
-wasm-opt = false'''
-          if old not in s:
-              raise SystemExit('wasm-pack release optimization block not found')
-          p.write_text(s.replace(old, new, 1))
-          PY
+          perl -0pi -e 's/\[package\.metadata\.wasm-pack\.profile\.release\]\nwasm-opt = \[\n.*?\n\]/[package.metadata.wasm-pack.profile.release]\nwasm-opt = false/s' _brush/apps/brush-js/Cargo.toml
+          grep -A2 '^\[package.metadata.wasm-pack.profile.release\]$' _brush/apps/brush-js/Cargo.toml
 
       - name: Validate JavaScript
         run: node --check training.js
