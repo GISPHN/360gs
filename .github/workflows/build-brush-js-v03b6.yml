@@ -1,0 +1,124 @@
+name: Build Brush JS v0.3b6 diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-brush-js-v03b6.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout pinned Brush source
+        uses: actions/checkout@v4
+        with:
+          repository: ArthurBrussee/brush
+          ref: 3da02ecfe91aae9c011a8c8c482d82860b88eb1f
+          path: _brush
+          lfs: false
+
+      - name: Patch Brush staged diagnostics
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          p = Path('_brush/apps/brush-js/src/lib.rs')
+          s = p.read_text()
+          needle = '                    out.push(BrushMessage { inner: msg });\n'
+          assert needle in s
+          s = s.replace(needle, needle + '                    if steps == 0 { return Ok(out); }\n', 1)
+          p.write_text(s)
+
+          p = Path('_brush/crates/brush-process/src/train_stream.rs')
+          s = p.read_text()
+
+          def emit(stage):
+              return f'''    emitter\n        .emit(ProcessMessage::Warning {{ error: anyhow::anyhow!("360GS_STAGE: {stage}") }})\n        .await;\n'''
+
+          needle = '    // Start with memory cleared out.\n'
+          assert needle in s
+          s = s.replace(needle, emit('post_loading_enter') + '\n' + needle, 1)
+
+          needle = '    let bounds = get_splat_bounds(init_splats.clone(), BOUND_PERCENTILE).await;\n'
+          assert needle in s
+          s = s.replace(needle, emit('bounds_begin') + needle + emit('bounds_done'), 1)
+
+          needle = '    let mut view_cams: Vec<(glam::Vec3, f32)> = Vec::with_capacity(dataset.train.views.len());\n'
+          assert needle in s
+          s = s.replace(needle, emit('view_cams_begin') + needle, 1)
+
+          needle = '    let mut trainer = SplatTrainer::new(&train_stream_config.train_config, &device, bounds);\n'
+          assert needle in s
+          s = s.replace(needle, emit('view_cams_done') + needle + emit('trainer_ready'), 1)
+
+          needle = '''        let batch = dataloader
+            .next_batch()
+            .instrument(trace_span!("Wait for next data batch"))
+            .await;
+'''
+          assert needle in s
+          s = s.replace(needle, '''        if iter == process_config.start_iter {
+''' + emit('first_batch_begin').replace('    ', '            ', 1) + '''        }
+''' + needle + '''        if iter == process_config.start_iter {
+''' + emit('first_batch_ready').replace('    ', '            ', 1) + '''        }
+''', 1)
+
+          needle = '        let diff_splats = brush_render::bwd::burn_glue::lift_splats_to_autodiff(splats);\n'
+          assert needle in s
+          s = s.replace(needle, '''        if iter == process_config.start_iter {
+''' + emit('autodiff_begin').replace('    ', '            ', 1) + '''        }
+''' + needle + '''        if iter == process_config.start_iter {
+''' + emit('autodiff_ready').replace('    ', '            ', 1) + '''        }
+''', 1)
+
+          needle = '        let (new_diff_splats, stats) = trainer.step(batch, diff_splats).await;\n'
+          assert needle in s
+          s = s.replace(needle, '''        if iter == process_config.start_iter {
+''' + emit('trainer_step_begin').replace('    ', '            ', 1) + '''        }
+''' + needle + '''        if iter == process_config.start_iter {
+''' + emit('trainer_step_done').replace('    ', '            ', 1) + '''        }
+''', 1)
+
+          p.write_text(s)
+          PY
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Build brush-js
+        run: |
+          rm -rf vendor/brush-js
+          mkdir -p vendor/brush-js
+          wasm-pack build _brush/apps/brush-js --release --target web --out-dir "$GITHUB_WORKSPACE/vendor/brush-js" --out-name brush_js
+          rm -f vendor/brush-js/.gitignore
+          printf '%s\n' \
+            'Brush JavaScript/WebAssembly runtime.' \
+            'Built from ArthurBrussee/brush commit 3da02ecfe91aae9c011a8c8c482d82860b88eb1f.' \
+            '360GS extension: trainSteps(0) returns one visible message; v0.3b6 first-step diagnostics enabled.' \
+            'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
+            > vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated runtime
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/brush-js
+          git commit -m "Build Brush runtime with first-step diagnostics" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
