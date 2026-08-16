@@ -721,7 +721,7 @@ function baRender(results) {
     message.textContent = `${good.length}区間で、誤差を悪化させない条件を満たした全体最適化が成立しました。次は3DGS入力用データセットの整備へ進めます。`;
   } else if (usable.length) {
     message.className = 'message-box warning';
-    message.textContent = '安定化後に最適化候補として残る区間があります。次に再訪位置や長距離対応を追加し、3DGS入力前の軌跡をさらに確認します。';
+    message.textContent = '「良好」基準には達していませんが最適化候補が残っています。トラック数、角度誤差、RMS、外れ観測率、事前除外率の追加安全条件を満たす候補があれば、最も安定した1区間だけ学習画像の品質確認へ進めます。満たさない場合は停止理由を表示します。';
   } else {
     message.className = 'message-box warning';
     message.textContent = '最適化で明確な改善を確認できなかったため、悪化する更新は採用していません。次工程へ無理に進まず、対応点または軌跡の安定化を優先します。';
@@ -768,7 +768,7 @@ function baReset() {
   const panel = document.querySelector('#ba-panel'); if (panel) panel.hidden = true;
 }
 
-document.querySelectorAll('.version').forEach((node) => { node.textContent = 'Prototype v0.2h'; });
+document.querySelectorAll('.version').forEach((node) => { node.textContent = 'Prototype v0.3c17'; });
 const heroEyebrow = document.querySelector('.video-hero .eyebrow');
 if (heroEyebrow) heroEyebrow.textContent = 'Step 7 / 安定化した全体最適化';
 const heroTitle = document.querySelector('.video-hero h1');
