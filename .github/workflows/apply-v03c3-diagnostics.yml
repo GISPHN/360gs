@@ -1,0 +1,36 @@
+name: Apply v0.3c3 Gaussian diagnostics
+
+on:
+  push:
+    paths:
+      - '.github/scripts/apply_v03c3_diagnostics.py'
+      - '.github/workflows/apply-v03c3-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply diagnostics patch
+        run: python .github/scripts/apply_v03c3_diagnostics.py
+      - name: Validate JavaScript
+        run: node --check training.js
+      - name: Commit diagnostics update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js video.html index.html BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Add v0.3c3 Gaussian quality diagnostics"
+          git pull --rebase origin main
+          git push origin HEAD:main
