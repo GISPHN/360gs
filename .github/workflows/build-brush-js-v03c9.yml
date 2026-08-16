@@ -10,6 +10,10 @@ on:
       - '.github/workflows/build-brush-js-v03c9.yml'
       - 'tools/patch_v03c9.py'
 
+concurrency:
+  group: brush-js-v03c9-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -59,6 +63,7 @@ jobs:
       - name: Verify v0.3c9 markers
         run: |
           grep -q 'refine_browser_growth_only' _brush/crates/brush-train/src/train.rs
+          grep -q 'iter < self.config.growth_stop_iter' _brush/crates/brush-train/src/train.rs
           grep -q 'split a bounded geometry-backed subset entirely on the GPU' _brush/crates/brush-process/src/train_stream.rs
           grep -q "212:'追加Gaussianの対象をCPU readbackなしで選択しています'" training.js
           grep -q "c\['split-at-screen-size'\]=0" training.js
@@ -97,7 +102,7 @@ jobs:
             'Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.' \
             '360GS extension: v0.3c9 source-position holdout, BA/SfM hybrid seeds, GPU-only bounded Gaussian growth, and adaptive convergence stopping.' \
             'The browser growth path performs no training-time pruning, no argwhere/readback, and no bounds recomputation.' \
-            'Growth remains device-capped at 36k/50k/60k and scheduled approximately every 1600 iterations with 5-8% additions.' \
+            'Growth remains device-capped at 36k/50k/60k, scheduled approximately every 1600 iterations with 5-8% additions, and stops at growth_stop_iter.' \
             'SH degree remains 0 for controlled comparison with c7/c8.' \
             'wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.' \
             'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
