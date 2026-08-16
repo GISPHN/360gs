@@ -1,8 +1,8 @@
-360GS v0.3c14
-Viewer camera-state stability hotfix
-Training/reconstruction model unchanged from v0.3c13 six-face 90-degree cubemap
-Viewer separates scene-orbit and captured-camera look modes and synchronizes yaw/pitch state
-Single click no longer changes camera; captured-camera wheel uses FOV zoom; conservative clip planes added
-PlayCanvas viewer pinned to verified v2.21.2
-c13 baseline: 46,128 Gaussians; train 19.75 dB / 0.568; held-out 19.10 dB / 0.532; gap 0.65 dB
+360GS v0.3c15
+Visible-mass overview framing hotfix
+Training/reconstruction model unchanged from v0.3c13/c14 six-face 90-degree cubemap
+全体を表示 uses opacity-aware visible Gaussian bounds instead of all retained seed positions
+Overview starts from a representative observed camera side to avoid arbitrary SH1 reverse-side framing
+撮影位置から表示 behavior from v0.3c14 is unchanged
+c13 quality baseline: 46,128 Gaussians; train 19.75 dB / 0.568; held-out 19.10 dB / 0.532; gap 0.65 dB
 Build date: 2026-08-16
