@@ -29,8 +29,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Apply c20 patch
-        run: python tools/patch_v03c20.py
+      - name: Normalize c19 result marker and apply c20 patch
+        run: |
+          sed -i 's/depthPoints:ds.depthPoints||0,randomDepthSeeds/depthPoints:ds.depthPoints,randomDepthSeeds/' training.js
+          python tools/patch_v03c20.py
 
       - name: Check JavaScript and Python syntax
         run: |
@@ -49,7 +51,7 @@ jobs:
           grep -Fq "third.observations" geometry-seed.js
           grep -Fq "refinePosesFromTriangulatedPoints" training.js
           grep -Fq "Post-triangulation pose refinement" training.js
-          grep -Fq "post-triangulation pose refinement" BUILD_VERSION.txt
+          grep -Fq "Post-triangulation spherical 2D-3D camera pose refinement" BUILD_VERSION.txt
           grep -Fq "ratio90>25" training.js
           grep -Fq "train-result-geometry" training.js
           grep -Fq "Prototype v0.3c20" index.html
