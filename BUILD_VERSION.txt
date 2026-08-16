@@ -1,3 +1,4 @@
 360GS v0.3c6
 Train-view versus held-out reprojection evaluation
 Build date: 2026-08-16
+Published runtime: aed7011a5fa787e68e3bd8f0c7a5b74cd5ce1152
