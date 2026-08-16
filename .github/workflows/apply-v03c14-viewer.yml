@@ -1,0 +1,65 @@
+name: Apply v0.3c14 viewer stability hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c14-viewer-stability
+    paths:
+      - '.github/workflows/apply-v03c14-viewer.yml'
+      - 'tools/patch_v03c14.py'
+
+concurrency:
+  group: v03c14-viewer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply v0.3c14 viewer patch
+        run: python tools/patch_v03c14.py
+
+      - name: Verify viewer stability markers
+        run: |
+          grep -q "let mode='orbit'" training.js
+          grep -q "mode='look'" training.js
+          grep -q 'lookFov=TR_FOV' training.js
+          grep -q 'lostpointercapture' training.js
+          grep -q 'クリックだけでは視点は変わりません' training.js
+          grep -q 'playcanvas@2.21.2' training.js
+          grep -q 'Prototype v0.3c14' training.js
+          grep -q 'Prototype v0.3c14' index.html
+          grep -q 'Prototype v0.3c14' video.html
+          grep -q 'brush_js_bg.wasm?v=0.3c14' training.js
+          grep -q 'Training/reconstruction model unchanged from v0.3c13' BUILD_VERSION.txt
+          python -m py_compile tools/patch_v03c14.py
+
+      - name: Validate JavaScript syntax
+        run: node --check training.js
+
+      - name: Ensure c13 Brush runtime is retained
+        run: |
+          test -s vendor/brush-js/brush_js_bg.wasm
+          test -s vendor/brush-js/brush_js.js
+
+      - name: Commit v0.3c14 generated frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js index.html video.html README.md BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c14 output is unchanged."
+          else
+            git commit -m "Apply v0.3c14 viewer stability hotfix"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi

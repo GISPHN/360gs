@@ -1,7 +1,8 @@
-360GS v0.3c13
-Six-face 90-degree cubemap projection/camera comparison
-Primary change from v0.3c12: 4 equatorial 100-degree tangent views -> 6 complete 90-degree cubemap faces
-SH degree 1, c12 Gaussian density schedule, 512px limit, optimization horizon and adaptive stop unchanged
-Brush source-position holdout and train-fit diagnostics updated from 4-face to 6-face groups
-c12 baseline: 46,128 Gaussians; train 19.88 dB / 0.569; held-out 18.88 dB / 0.484; gap 1.00 dB
+360GS v0.3c14
+Viewer camera-state stability hotfix
+Training/reconstruction model unchanged from v0.3c13 six-face 90-degree cubemap
+Viewer separates scene-orbit and captured-camera look modes and synchronizes yaw/pitch state
+Single click no longer changes camera; captured-camera wheel uses FOV zoom; conservative clip planes added
+PlayCanvas viewer pinned to verified v2.21.2
+c13 baseline: 46,128 Gaussians; train 19.75 dB / 0.568; held-out 19.10 dB / 0.532; gap 0.65 dB
 Build date: 2026-08-16
