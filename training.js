@@ -270,7 +270,7 @@ function trShouldEarlyStop(plan){
   }
   return null;
 }
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c13`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c13', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c14`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c14', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -461,7 +461,7 @@ function trFitInterpretation(trainEval,holdout){
   if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、現時点ではカメラ姿勢だけを主因とせず、BA/SfM seed・GPU内軽量growthを使用しても学習画像への適合が低いため、次は入力視点密度、カメラ幾何、解像度、SH degreeを個別に評価します。';
   if(trainEval.psnr>=20&&trainEval.ssim>=.65&&(holdout.psnr<15||holdout.ssim<.45||gap>5))return '学習画像には適合できていますが未学習画像で大きく低下しています。カメラ姿勢・対応点・3D幾何の不整合を優先して改善します。';
   if(trainEval.psnr>=20&&holdout.psnr>=18&&trainEval.ssim>=.65&&holdout.ssim>=.60)return '学習画像・未学習画像とも一定の再現性があります。次はGaussian数、SH degree、軽量densificationを段階的に増やします。';
-  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c11でSH1の効果がほぼ無かったため、c12ではgrowth選択率だけを3倍にしてGaussian密度を比較しています。train・未学習画像の双方が明確に改善しなければ、次は360°投影・カメラ姿勢・3D幾何を優先して比較します。';
+  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c13では6面90°cubemapへ変更して360°投影範囲を改善しています。改善が限定的なら、次は直接ERP/球面カメラモデルとカメラ姿勢・3D幾何を優先して比較します。';
 }
 function trRenderFitEvaluation(res,trainEval,holdout,history){
   if(!res)return;
@@ -486,7 +486,7 @@ async function trShow(blob,bounds=trResultBounds,view=trResultView){
   if(trResultUrl)URL.revokeObjectURL(trResultUrl);
   trResultUrl=URL.createObjectURL(blob);
 
-  const pc=await import('https://cdn.jsdelivr.net/npm/playcanvas@2.21.4/build/playcanvas.mjs');
+  const pc=await import('https://cdn.jsdelivr.net/npm/playcanvas@2.21.2/build/playcanvas.mjs');
   const cv=document.createElement('canvas');
   cv.className='train-viewer-canvas';
   const toolbar=document.createElement('div');
@@ -498,7 +498,7 @@ async function trShow(blob,bounds=trResultBounds,view=trResultView){
   fitButton.type='button';
   fitButton.textContent='全体を表示';
   const help=document.createElement('span');
-  help.textContent='ドラッグ: 回転 / ホイール: 拡大縮小';
+  help.textContent='ドラッグ: 回転 / ホイール: 拡大縮小（クリックだけでは視点は変わりません）';
   toolbar.append(captureButton,fitButton,help);
   wrap.append(cv,toolbar);
 
@@ -532,38 +532,105 @@ async function trShow(blob,bounds=trResultBounds,view=trResultView){
   cam.camera.nearClip=Math.max(rad*0.0005,0.00001);
   cam.camera.farClip=Math.max(rad*60,100);
 
-  let yaw=.55,pitch=.12,distance=rad*2.55,drag=false,lx=0,ly=0;
-  const update=()=>{
-    cam.camera.fov=55;
+  // c14 viewer state model:
+  // - orbit mode is used by "全体を表示" and rotates around the scene centre.
+  // - look mode is used by "撮影位置から表示" and rotates in place at the
+  //   captured camera position.  Previously capture() changed only the actual
+  //   PlayCanvas camera while yaw/pitch/distance retained stale orbit values;
+  //   the first pointer movement therefore jumped to an unrelated camera pose.
+  cv.style.touchAction='none';
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const finite3=v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite);
+  let mode='orbit',yaw=.55,pitch=.12,distance=Math.max(rad*2.55,rad+.0001),lookPos=[0,0,0],lookFov=TR_FOV;
+  let drag=false,activePointer=null,lx=0,ly=0;
+
+  const setClips=()=>{
+    // Keep the near plane conservative for cameras that may start inside an
+    // indoor scene while retaining a generous far plane for scene-wide orbit.
+    cam.camera.nearClip=Math.max(rad*0.00002,0.00001);
+    cam.camera.farClip=Math.max(rad*100,distance+rad*20,100);
+  };
+  const direction=()=>{
     const cp=Math.cos(pitch);
-    cam.setPosition(distance*Math.sin(yaw)*cp,distance*Math.sin(pitch),distance*Math.cos(yaw)*cp);
-    cam.lookAt(0,0,0);
+    return[Math.sin(yaw)*cp,Math.sin(pitch),Math.cos(yaw)*cp];
+  };
+  const recover=reason=>{
+    trLog(`Viewer camera recovery: ${reason}`);
+    mode='orbit';yaw=.55;pitch=.12;distance=Math.max(rad*2.55,rad+.0001);lookFov=TR_FOV;
+  };
+  const update=()=>{
+    if(!Number.isFinite(yaw)||!Number.isFinite(pitch)||!Number.isFinite(distance)||!finite3(lookPos))recover('invalid camera state');
+    pitch=clamp(pitch,-1.45,1.45);
+    if(mode==='look'){
+      const d=direction();
+      cam.camera.fov=clamp(lookFov,20,110);
+      cam.setPosition(lookPos[0],lookPos[1],lookPos[2]);
+      cam.lookAt(lookPos[0]+d[0]*Math.max(rad,1),lookPos[1]+d[1]*Math.max(rad,1),lookPos[2]+d[2]*Math.max(rad,1));
+    }else{
+      distance=clamp(distance,Math.max(rad*.08,.0001),Math.max(rad*40,1));
+      cam.camera.fov=55;
+      const cp=Math.cos(pitch);
+      cam.setPosition(distance*Math.sin(yaw)*cp,distance*Math.sin(pitch),distance*Math.cos(yaw)*cp);
+      cam.lookAt(0,0,0);
+    }
+    setClips();
   };
   const fit=()=>{
-    yaw=.55;
-    pitch=.12;
-    distance=Math.max(rad*2.55,rad+.0001);
+    mode='orbit';yaw=.55;pitch=.12;distance=Math.max(rad*2.55,rad+.0001);
     update();
+    trLog('Viewer mode: scene orbit');
   };
   const capture=()=>{
     if(!view?.position||!view?.forward){fit();return;}
     const pos=[view.position[0]-center[0],view.position[1]-center[1],view.position[2]-center[2]];
-    const f=view.forward;
-    cam.camera.fov=TR_FOV;
-    cam.setPosition(pos[0],pos[1],pos[2]);
-    cam.lookAt(pos[0]+f[0]*rad,pos[1]+f[1]*rad,pos[2]+f[2]*rad);
+    const f=[view.forward[0],view.forward[1],view.forward[2]];
+    const fn=Math.hypot(f[0],f[1],f[2]);
+    if(!finite3(pos)||!finite3(f)||!Number.isFinite(fn)||fn<1e-8){fit();return;}
+    f[0]/=fn;f[1]/=fn;f[2]/=fn;
+    mode='look';lookPos=pos;lookFov=TR_FOV;
+    yaw=Math.atan2(f[0],f[2]);
+    pitch=Math.asin(clamp(f[1],-1,1));
+    update();
     trLog(`Viewer training camera: frame ${view.index+1}${view.time!=null?` / ${view.time.toFixed(1)}s`:''}`);
   };
   captureButton.disabled=!view;
   captureButton.addEventListener('click',capture);
   fitButton.addEventListener('click',fit);
-  cv.addEventListener('dblclick',()=>view?capture():fit());
-  cv.addEventListener('pointerdown',e=>{drag=true;lx=e.clientX;ly=e.clientY;cv.setPointerCapture(e.pointerId);});
-  cv.addEventListener('pointermove',e=>{if(!drag)return;yaw-=(e.clientX-lx)*.006;pitch=Math.max(-1.45,Math.min(1.45,pitch-(e.clientY-ly)*.006));lx=e.clientX;ly=e.clientY;update();});
-  const endDrag=e=>{drag=false;try{cv.releasePointerCapture(e.pointerId);}catch{}};
+
+  cv.addEventListener('pointerdown',e=>{
+    if(e.button!==0)return;
+    e.preventDefault();
+    drag=true;activePointer=e.pointerId;lx=e.clientX;ly=e.clientY;
+    try{cv.setPointerCapture(e.pointerId);}catch{}
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!drag||e.pointerId!==activePointer)return;
+    const dx=e.clientX-lx,dy=e.clientY-ly;
+    lx=e.clientX;ly=e.clientY;
+    if(Math.abs(dx)+Math.abs(dy)<0.01)return;
+    yaw-=dx*.006;
+    pitch=clamp(pitch-dy*.006,-1.45,1.45);
+    update();
+  });
+  const endDrag=e=>{
+    if(activePointer!==null&&e.pointerId!==activePointer)return;
+    drag=false;activePointer=null;
+    try{cv.releasePointerCapture(e.pointerId);}catch{}
+  };
   cv.addEventListener('pointerup',endDrag);
   cv.addEventListener('pointercancel',endDrag);
-  cv.addEventListener('wheel',e=>{e.preventDefault();distance=Math.max(rad*.08,Math.min(rad*40,distance*Math.exp(e.deltaY*.001)));update();},{passive:false});
+  cv.addEventListener('lostpointercapture',()=>{drag=false;activePointer=null;});
+  cv.addEventListener('wheel',e=>{
+    e.preventDefault();
+    if(mode==='look'){
+      // At a captured camera position, wheel changes lens zoom instead of
+      // moving the camera through nearby geometry and accidentally clipping it.
+      lookFov=clamp(lookFov*Math.exp(e.deltaY*.001),20,110);
+    }else{
+      distance=clamp(distance*Math.exp(e.deltaY*.001),Math.max(rad*.08,.0001),Math.max(rad*40,1));
+    }
+    update();
+  },{passive:false});
 
   const ro=new ResizeObserver(()=>app.resizeCanvas(Math.max(1,wrap.clientWidth),Math.max(1,wrap.clientHeight)));
   ro.observe(wrap);
@@ -721,5 +788,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c13');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c14');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
