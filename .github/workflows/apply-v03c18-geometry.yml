@@ -1,0 +1,88 @@
+name: Apply v0.3c18 geometry-consistent initialization
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c18-geometry-seeds
+    paths:
+      - 'geometry-seed.js'
+      - 'tools/patch_v03c18.py'
+      - '.github/workflows/apply-v03c18-geometry.yml'
+
+concurrency:
+  group: v03c18-geometry-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply c18 patch
+        run: python tools/patch_v03c18.py
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check geometry-seed.js
+          node --check training.js
+          node --check spherical.js
+          node --check ba.js
+          node --check sfm.js
+          node --check dataset.js
+
+      - name: Verify geometry initialization markers
+        run: |
+          set -euo pipefail
+          grep -Fq "buildTriangulatedGeometrySeeds" training.js
+          grep -Fq "Geometry preflight:" training.js
+          grep -Fq "random-depth seeds" training.js
+          grep -Fq "randomDepthSeeds:0" training.js
+          grep -Fq "accepted 2-view points" training.js
+          grep -Fq "GS_MIN_PARALLAX_DEG = 0.30" geometry-seed.js
+          grep -Fq "GS_MAX_REPROJ_DEG = 0.80" geometry-seed.js
+          grep -Fq "Prototype v0.3c18" index.html
+          grep -Fq "Prototype v0.3c18" video.html
+          grep -Fq "training.js?v=0.3c18" video.html
+          grep -Fq "brush_js_bg.wasm?v=0.3c18" training.js
+
+      - name: Validate triangulation and six-face center geometry
+        run: |
+          node <<'NODE'
+          const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+          const norm=v=>Math.hypot(...v), unit=v=>{const n=norm(v);return v.map(x=>x/n)};
+          const sub=(a,b)=>a.map((x,i)=>x-b[i]), add=(a,b)=>a.map((x,i)=>x+b[i]), scale=(v,s)=>v.map(x=>x*s);
+          const triangulate=(C1,d1,C2,d2)=>{const b=dot(d1,d2),w0=sub(C1,C2),d=dot(d1,w0),e=dot(d2,w0),den=1-b*b;if(den<1e-6)return null;const s=(b*e-d)/den,t=(e-b*d)/den;if(!(s>0&&t>0))return null;const p1=add(C1,scale(d1,s)),p2=add(C2,scale(d2,t));return scale(add(p1,p2),.5)};
+          const P=[0.4,-0.2,4.5], C1=[0,0,0], C2=[1,0.1,0], d1=unit(sub(P,C1)), d2=unit(sub(P,C2)), got=triangulate(C1,d1,C2,d2);
+          if(!got||norm(sub(got,P))>1e-6)throw new Error('synthetic triangulation failed');
+          const mul=(a,b)=>{const o=Array(9).fill(0);for(let r=0;r<3;r++)for(let c=0;c<3;c++)o[r*3+c]=a[r*3]*b[c]+a[r*3+1]*b[c+3]+a[r*3+2]*b[c+6];return o};
+          const mv=(m,v)=>[m[0]*v[0]+m[1]*v[1]+m[2]*v[2],m[3]*v[0]+m[4]*v[1]+m[5]*v[2],m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
+          const yaw=d=>{const a=d*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return[c,0,s,0,1,0,-s,0,c]};
+          const pitch=d=>{const a=d*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return[1,0,0,0,c,-s,0,s,c]};
+          const faces=[['front',0,0,[0,0,1]],['right',90,0,[1,0,0]],['back',180,0,[0,0,-1]],['left',270,0,[-1,0,0]],['up',0,-90,[0,1,0]],['down',0,90,[0,-1,0]]];
+          for(const [name,y,p,expected] of faces){const ray=mv(mul(yaw(y),pitch(p)),[0,0,1]);if(norm(sub(ray,expected))>1e-6)throw new Error(`${name} center ray mismatch`)}
+          console.log('c18 synthetic geometry tests passed');
+          NODE
+
+      - name: Commit generated c18 frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js index.html video.html BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "c18 generated frontend unchanged"
+          else
+            git commit -m "Apply v0.3c18 geometry-consistent initialization"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
