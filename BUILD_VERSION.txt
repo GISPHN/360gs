@@ -1,8 +1,8 @@
-360GS v0.3c17
-Guarded BA candidate continuation
-Good BA segments remain preferred
-When no good segment exists, exactly one candidate may continue only if it satisfies: >=18 tracks, >=55 angular inliers, median <=1.0 deg, RMS <=1.6 deg, outlier rate <=15%, prune rate <=75%, and no rollback
-If no segment passes, the UI reports an explicit safe stop instead of silently ending
-Dataset and Brush training use the exact same selected segment ID
-Direct ERP spherical geometry from v0.3c16 is retained unchanged
+360GS v0.3c18
+Geometry-consistent ERP triangulated initialization
+Cubemap/COLMAP camera self-test runs before Brush training
+Adjacent and one-skip ERP frame pairs add guarded 2-view triangulated points after BA camera poses are fixed
+Positive depth, parallax, ray-gap and angular reprojection checks reject weak points
+Random frustum/depth initialization is removed; init.ply contains only BA/SfM and accepted 2-view geometry neighborhoods
+Brush training, SH degree 1, six-face cubemap images and bounded GPU growth remain unchanged from v0.3c17
 Build date: 2026-08-17
