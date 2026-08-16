@@ -1,6 +1,6 @@
 Brush JavaScript/WebAssembly runtime.
 Built from ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS extension: v0.3c0 browser fixed-Gaussian optimization with lightweight refinement-stat resets.
+360GS extension: v0.3c6 browser fixed-Gaussian runtime with train-view versus held-out reprojection evaluation.
 Full Brush prune/densify refinement remains enabled on native targets and is bypassed only on wasm.
 wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.

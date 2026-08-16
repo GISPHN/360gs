@@ -1,4 +1,3 @@
-360GS v0.3c5
-Held-out reprojection evaluation with Brush PSNR and SSIM
+360GS v0.3c6
+Train-view versus held-out reprojection evaluation
 Build date: 2026-08-16
-Deployment: GitHub Pages refresh
