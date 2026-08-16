@@ -74,7 +74,7 @@ function dsEnsurePanel() {
   if (!baPanel) return null;
   panel = document.createElement('section');
   panel.id = 'dataset-panel'; panel.className = 'dataset-panel'; panel.hidden = true;
-  panel.innerHTML = `<div class="dataset-heading"><div><p class="eyebrow">3DGS学習データの準備</p><h3>最適化済みの360°動画から学習用データセットを作成</h3></div><span class="dataset-auto">自動設定</span></div><p class="dataset-description">最適化が良好な区間だけを使い、各360°キーフレームを前・右・後・左の4方向へ高画質な透視画像として展開します。生成後に画像の情報量を自動検査し、正常な場合だけCOLMAP形式と初期疎点群をZIPにまとめます。</p><div class="dataset-stats"><div><span>対象区間</span><strong id="dataset-count">—</strong></div><div><span>元キーフレーム</span><strong id="dataset-frames">—</strong></div><div><span>学習画像</span><strong id="dataset-images">—</strong></div><div><span>出力解像度</span><strong id="dataset-size">—</strong></div></div><div id="dataset-list" class="dataset-list"></div><div id="dataset-message" class="message-box" hidden></div><p class="dataset-note">元の360°動画と生成画像はこの端末内だけで処理します。カメラ移動の絶対距離スケールは未確定のため、出力データも任意スケールです。</p>`;
+  panel.innerHTML = `<div class="dataset-heading"><div><p class="eyebrow">3DGS学習データの準備</p><h3>最適化済みの360°動画から学習用データセットを作成</h3></div><span class="dataset-auto">自動設定</span></div><p class="dataset-description">全体最適化が良好な区間を優先します。良好区間がない場合でも、トラック数・角度誤差・RMS・外れ観測率・事前除外率の厳格な安全条件を満たす最適化候補を1区間だけ品質確認へ進めます。条件を満たさない場合は停止理由を明示します。</p><div class="dataset-stats"><div><span>対象区間</span><strong id="dataset-count">—</strong></div><div><span>元キーフレーム</span><strong id="dataset-frames">—</strong></div><div><span>学習画像</span><strong id="dataset-images">—</strong></div><div><span>出力解像度</span><strong id="dataset-size">—</strong></div></div><div id="dataset-list" class="dataset-list"></div><div id="dataset-message" class="message-box" hidden></div><p class="dataset-note">元の360°動画と生成画像はこの端末内だけで処理します。カメラ移動の絶対距離スケールは未確定のため、出力データも任意スケールです。</p>`;
   baPanel.insertAdjacentElement('afterend', panel);
   return panel;
 }
@@ -257,19 +257,58 @@ function dsRenderPreview(card, built) {
   card.querySelector('.dataset-card-progress')?.insertAdjacentElement('afterend', wrap);
 }
 
+function dsIsGuardedCandidate(item) {
+  const opt = item?.optimization, final = opt?.final;
+  if (!opt || !final || opt.quality !== 'candidate' || opt.rolledBack) return false;
+  return (
+    opt.tracks.length >= 18 &&
+    final.inlierCount >= 55 &&
+    final.medianDeg <= 1.0 &&
+    final.rmsDeg <= 1.6 &&
+    final.outlierRate <= 0.15 &&
+    (opt.prunedRate || 0) <= 0.75
+  );
+}
+function dsCandidateScore(item) {
+  const opt = item.optimization, final = opt.final;
+  return opt.tracks.length * 4 + final.inlierCount * 0.8 - final.medianDeg * 25 - final.rmsDeg * 12 - final.outlierRate * 100;
+}
+function dsSelectBaItems(detail) {
+  const good = Array.isArray(detail?.good) ? detail.good : [];
+  if (good.length) return { items: [...good], mode: 'good' };
+  const guarded = (Array.isArray(detail?.usable) ? detail.usable : [])
+    .filter(dsIsGuardedCandidate)
+    .sort((a, b) => dsCandidateScore(b) - dsCandidateScore(a));
+  return { items: guarded.slice(0, 1), mode: guarded.length ? 'candidate' : 'none' };
+}
+
 async function dsRun(detail) {
-  if (dsRunning || !detail?.good?.length || !dsSourceVideo) return;
-  const signature = `${dsSourceVideo.currentSrc || dsSourceVideo.src}|${detail.good.map((x) => `${x.source.segment.id}-${x.optimization.poses.length}-${x.optimization.final.medianDeg.toFixed(4)}`).join('|')}`;
+  if (dsRunning || !dsSourceVideo) return;
+  const selection = dsSelectBaItems(detail);
+  const selected = selection.items;
+  const signature = `${dsSourceVideo.currentSrc || dsSourceVideo.src}|${selected.map((x) => `${x.source.segment.id}-${x.optimization.poses.length}-${x.optimization.final.medianDeg.toFixed(4)}`).join('|')}`;
   if (signature === dsLastSignature) return;
   dsLastSignature = signature; dsRunning = true;
   const generation = ++dsGeneration, panel = dsEnsurePanel(); if (!panel) return;
   panel.hidden = false; const list = panel.querySelector('#dataset-list'); list.replaceChildren();
-  const totalFrames = detail.good.reduce((s,item) => s + dsSelectIndices(item.optimization.poses.length).length, 0), totalImages = totalFrames * 4;
-  panel.querySelector('#dataset-count').textContent = `${detail.good.length}区間`; panel.querySelector('#dataset-frames').textContent = `${totalFrames}枚`; panel.querySelector('#dataset-images').textContent = `${totalImages}枚`; panel.querySelector('#dataset-size').textContent = '自動';
+  if (!selected.length) {
+    panel.querySelector('#dataset-count').textContent = 'なし';
+    panel.querySelector('#dataset-frames').textContent = '—';
+    panel.querySelector('#dataset-images').textContent = '—';
+    panel.querySelector('#dataset-size').textContent = '—';
+    dsSetMessage('Bundle Adjustmentは完了しましたが、3DGS学習へ進める幾何学品質を満たす区間がありません。結果を良く見せるために低品質な区間を無理に使用せず、ここで安全に停止しました。', 'warning');
+    if (dsProgressText) dsProgressText.textContent = '全体最適化は完了しましたが、学習へ進める区間がありません';
+    window.__360gsDatasetResult = { ready:false, count:0, failedCount:0, selectionMode:'none', selectedSegmentIds:[] };
+    window.dispatchEvent(new CustomEvent('360gs:dataset-ready', { detail:window.__360gsDatasetResult }));
+    dsRunning = false;
+    return;
+  }
+  const totalFrames = selected.reduce((s,item) => s + dsSelectIndices(item.optimization.poses.length).length, 0), totalImages = totalFrames * 4;
+  panel.querySelector('#dataset-count').textContent = `${selected.length}区間`; panel.querySelector('#dataset-frames').textContent = `${totalFrames}枚`; panel.querySelector('#dataset-images').textContent = `${totalImages}枚`; panel.querySelector('#dataset-size').textContent = '自動';
   let readyCount = 0, failedCount = 0;
   try {
-    for (let i = 0; i < detail.good.length; i += 1) {
-      const item = detail.good[i], card = document.createElement('article'); card.className = 'dataset-card';
+    for (let i = 0; i < selected.length; i += 1) {
+      const item = selected[i], card = document.createElement('article'); card.className = 'dataset-card';
       card.innerHTML = `<div class="dataset-card-head"><div><span>候補区間 ${item.source.segment.id}</span><h4>${item.source.segment.start.toFixed(1)}秒 〜 ${item.source.segment.end.toFixed(1)}秒</h4></div><span class="dataset-badge">作成中</span></div><div class="dataset-card-progress">学習データを準備しています</div><div class="dataset-actions"></div>`;
       list.append(card);
       const built = await dsBuildDataset(item, card, generation); if (!built) return;
@@ -293,13 +332,14 @@ async function dsRun(detail) {
       }
     }
     if (readyCount) {
-      dsSetMessage(`${readyCount}区間で透視画像の品質まで確認できました。プレビューを目視確認したうえで「学習データZIPを保存」を利用できます。${failedCount ? ` ${failedCount}区間は画像品質のため保留しました。` : ''}`, 'success');
+      const guardedNote = selection.mode === 'candidate' ? ' BAの「良好」基準には未達ですが、厳格な安全条件を満たした最適化候補1区間のみを使用しています。' : '';
+      dsSetMessage(`${readyCount}区間で透視画像の品質まで確認できました。${guardedNote} プレビューを目視確認したうえで「学習データZIPを保存」を利用できます。${failedCount ? ` ${failedCount}区間は画像品質のため保留しました。` : ''}`, 'success');
       if (dsProgressText) dsProgressText.textContent = '3DGS学習画像の品質確認まで完了しました';
     } else {
       dsSetMessage('生成した透視画像の品質に問題を検出したため、学習データの保存を停止しました。プレビューを確認してください。', 'warning');
       if (dsProgressText) dsProgressText.textContent = '学習画像の品質確認で問題を検出しました';
     }
-    window.__360gsDatasetResult = { ready:readyCount > 0, count:readyCount, failedCount };
+    window.__360gsDatasetResult = { ready:readyCount > 0, count:readyCount, failedCount, selectionMode:selection.mode, selectedSegmentIds:selected.map((item) => item.source.segment.id) };
     window.dispatchEvent(new CustomEvent('360gs:dataset-ready', { detail:window.__360gsDatasetResult }));
   } catch (error) {
     dsSetMessage(error?.message || '3DGS学習用データセットを作成できませんでした。', 'warning');
@@ -314,5 +354,5 @@ function dsReset() {
 window.addEventListener('360gs:ba-ready', (event) => window.setTimeout(() => dsRun(event.detail), 100));
 dsSourceVideo?.addEventListener('loadedmetadata', dsReset);
 if (window.__360gsBundleResult?.good?.length) window.setTimeout(() => dsRun(window.__360gsBundleResult), 100);
-document.querySelectorAll('.version').forEach((node) => { node.textContent = 'Prototype v0.3a1'; });
+document.querySelectorAll('.version').forEach((node) => { node.textContent = 'Prototype v0.3c17'; });
 const dsHeroEyebrow = document.querySelector('.video-hero .eyebrow'); if (dsHeroEyebrow) dsHeroEyebrow.textContent = 'Step 9 / 3DGS学習データの準備・画像品質確認';

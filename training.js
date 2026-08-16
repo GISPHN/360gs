@@ -828,11 +828,11 @@ async function trRun(item){
     trRunning=false;trTraining=null;trButtons(false);
   }
 }
-function trLatest(){return window.__360gsBundleResult?.good?.[0]||null;}
-function trStartLatest(){const x=trLatest();if(!x){trMsg('全体最適化が良好な区間がまだありません。','warning');return;}trRun(x);}
-function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.querySelector('#train-webgpu').textContent=navigator.gpu?'利用可':'利用不可';if(!ev.detail?.ready){trMsg('学習画像の品質確認を通過した区間がないため、3DGS学習は開始しません。','warning');return;}if(!navigator.gpu){trMsg('学習データは準備できましたが、この端末ではWebGPUを利用できません。ZIP保存は利用できます。','warning');return;}trMsg('画像品質を確認できました。3DGS学習を自動開始します。','success');setTimeout(()=>{if(!trRunning)trStartLatest();},900);}
+function trLatest(){const bundle=window.__360gsBundleResult;if(!bundle)return null;const ids=window.__360gsDatasetResult?.selectedSegmentIds||[];if(ids.length){const selected=(bundle.results||[]).find(item=>ids.includes(item.source.segment.id));if(selected)return selected;}return bundle.good?.[0]||null;}
+function trStartLatest(){const x=trLatest();if(!x){trMsg('3DGS学習対象として承認された区間がありません。','warning');return;}trRun(x);}
+function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.querySelector('#train-webgpu').textContent=navigator.gpu?'利用可':'利用不可';if(!ev.detail?.ready){trMsg('学習画像の品質確認を通過した区間がないため、3DGS学習は開始しません。','warning');return;}if(!navigator.gpu){trMsg('学習データは準備できましたが、この端末ではWebGPUを利用できません。ZIP保存は利用できます。','warning');return;}const mode=window.__360gsDatasetResult?.selectionMode;trMsg(mode==='candidate'?'BA良好基準には未達ですが、厳格な安全条件と画像品質確認を通過した1区間で3DGS学習を開始します。':'画像品質を確認できました。3DGS学習を自動開始します。','success');setTimeout(()=>{if(!trRunning)trStartLatest();},900);}
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c16');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c17');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';

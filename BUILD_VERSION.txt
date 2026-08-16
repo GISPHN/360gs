@@ -1,8 +1,8 @@
-360GS v0.3c16
-Direct ERP spherical correspondences for pose, local SfM, dense tracking and angular bundle adjustment
-Seam-safe tangent descriptors operate on the original equirectangular panorama with latitude-aware sampling
-Perspective feature extraction is retained only as an automatic fallback when direct ERP features are insufficient
-3DGS training model unchanged from v0.3c15/c13: six-face 90-degree cubemap, SH degree 1 and the same Gaussian density schedule
-This isolates camera-geometry quality before a clean-room WebGPU direct ERP Gaussian rasterizer is attempted
-c13 baseline: 46,128 Gaussians; train 19.75 dB / 0.568; held-out 19.10 dB / 0.532; gap 0.65 dB
+360GS v0.3c17
+Guarded BA candidate continuation
+Good BA segments remain preferred
+When no good segment exists, exactly one candidate may continue only if it satisfies: >=18 tracks, >=55 angular inliers, median <=1.0 deg, RMS <=1.6 deg, outlier rate <=15%, prune rate <=75%, and no rollback
+If no segment passes, the UI reports an explicit safe stop instead of silently ending
+Dataset and Brush training use the exact same selected segment ID
+Direct ERP spherical geometry from v0.3c16 is retained unchanged
 Build date: 2026-08-17
