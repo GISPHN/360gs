@@ -1,4 +1,0 @@
-1. 撮影位置から表示 remains unchanged from c14.
-2. 全体を表示 uses opacity-aware viewer bounds.
-3. Overview direction prefers the representative captured camera side.
-4. Training model and Brush runtime remain c13/c14-equivalent.
