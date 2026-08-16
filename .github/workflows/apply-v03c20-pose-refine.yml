@@ -1,0 +1,105 @@
+name: Apply v0.3c20 post triangulation pose refinement
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c20-post-triangulation-pose-refine
+    paths:
+      - 'pose-refine.js'
+      - 'tools/patch_v03c20.py'
+      - '.github/workflows/apply-v03c20-pose-refine.yml'
+
+concurrency:
+  group: v03c20-pose-refine-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply c20 patch
+        run: python tools/patch_v03c20.py
+
+      - name: Check JavaScript and Python syntax
+        run: |
+          node --check pose-refine.js
+          node --check geometry-seed.js
+          node --check depth-prior.js
+          node --check training.js
+          node --check spherical.js
+          node --check ba.js
+          python -m py_compile tools/patch_v03c20.py
+
+      - name: Verify c20 implementation markers
+        run: |
+          set -euo pipefail
+          grep -Fq "observations:[" geometry-seed.js
+          grep -Fq "third.observations" geometry-seed.js
+          grep -Fq "refinePosesFromTriangulatedPoints" training.js
+          grep -Fq "Post-triangulation pose refinement" training.js
+          grep -Fq "post-triangulation pose refinement" BUILD_VERSION.txt
+          grep -Fq "ratio90>25" training.js
+          grep -Fq "train-result-geometry" training.js
+          grep -Fq "Prototype v0.3c20" index.html
+          grep -Fq "Prototype v0.3c20" video.html
+          grep -Fq "training.js?v=0.3c20" video.html
+          grep -Fq "brush_js_bg.wasm?v=0.3c20" training.js
+
+      - name: Synthetic robust spherical pose refinement test
+        run: |
+          cp pose-refine.js /tmp/pose-refine.mjs
+          node --input-type=module <<'NODE'
+          import { refinePosesFromTriangulatedPoints } from 'file:///tmp/pose-refine.mjs';
+          const unit=v=>{const n=Math.hypot(...v);return v.map(x=>x/n)};
+          const sub=(a,b)=>a.map((x,i)=>x-b[i]);
+          const yaw=a=>{const c=Math.cos(a),s=Math.sin(a);return[c,0,s,0,1,0,-s,0,c]};
+          const truePoses=[0,1,2,3,4].map(i=>({position:[i*.45,0,0],cameraToWorld:[1,0,0,0,1,0,0,0,1]}));
+          const poses=truePoses.map(p=>({position:[...p.position],cameraToWorld:[...p.cameraToWorld]}));
+          poses[2].position=[.94,.015,-.012]; poses[2].cameraToWorld=yaw(.35*Math.PI/180);
+          poses[3].position=[1.31,-.012,.018]; poses[3].cameraToWorld=yaw(-.28*Math.PI/180);
+          const points=[];
+          for(let k=0;k<36;k++){
+            const P=[.2+(k%9)*.18,-.45+Math.floor(k/9)*.28,3.0+(k%5)*.32];
+            const observations=truePoses.map((p,i)=>({frameIndex:i,bearing:unit(sub(P,p.position)),weight:1}));
+            points.push({position:[...P],observations,score:2,supportViews:5});
+          }
+          const out=refinePosesFromTriangulatedPoints(poses,points,[0,1,2,3,4],[]);
+          if(!out.initial||!out.final) throw new Error('pose refinement metrics missing');
+          if(out.final.medianDeg>out.initial.medianDeg*1.01) throw new Error('median residual worsened');
+          if(out.final.p90Deg>out.initial.p90Deg*1.01) throw new Error('p90 residual worsened');
+          if(out.accepted && !(out.final.cost < out.initial.cost)) throw new Error('accepted pose did not improve robust cost');
+          if(out.motion?.maxRotationDeg>1.151) throw new Error('rotation safety cap failed');
+          console.log('c20 synthetic pose refinement test passed', out.accepted, out.initial.medianDeg, out.final.medianDeg);
+          NODE
+
+      - name: Verify c19 geometry and Brush runtime remain available
+        run: |
+          test -s vendor/brush-js/brush_js_bg.wasm
+          grep -Fq "six-face 90-degree cubemap" vendor/brush-js/BUILD_INFO.txt
+          grep -Fq "GS_MAX_FEATURES = 1100" geometry-seed.js
+          grep -Fq "depth-anything-v2-small-ONNX" depth-prior.js
+
+      - name: Commit generated c20 frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add geometry-seed.js pose-refine.js training.js index.html video.html README.md BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "c20 generated frontend unchanged"
+          else
+            git commit -m "Apply v0.3c20 post triangulation pose refinement"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
