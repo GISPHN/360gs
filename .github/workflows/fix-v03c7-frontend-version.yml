@@ -1,0 +1,60 @@
+name: Fix v0.3c7 frontend version and cache keys
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-v03c7-frontend-version.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update visible version and cache keys
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          for name in ('index.html', 'video.html'):
+              p = Path(name)
+              s = p.read_text()
+              s = s.replace('Prototype v0.3c5', 'Prototype v0.3c7')
+              s = s.replace('Prototype v0.3c6', 'Prototype v0.3c7')
+              s = s.replace('v=0.3c4', 'v=0.3c7')
+              s = s.replace('v=0.3c5', 'v=0.3c7')
+              s = s.replace('v=0.3c6', 'v=0.3c7')
+              p.write_text(s)
+          PY
+
+      - name: Verify frontend version
+        run: |
+          grep -q 'Prototype v0.3c7' index.html
+          grep -q 'Prototype v0.3c7' video.html
+          grep -q 'video.html?v=0.3c7' index.html
+          grep -q 'training.js?v=0.3c7' video.html
+          ! grep -q 'Prototype v0.3c5' index.html
+          ! grep -q 'Prototype v0.3c5' video.html
+          ! grep -q 'v=0.3c4' index.html
+          ! grep -q 'v=0.3c4' video.html
+
+      - name: Commit corrected frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html video.html
+          if git diff --cached --quiet; then
+            echo "Frontend version is already v0.3c7."
+          else
+            git commit -m "Fix v0.3c7 frontend version and cache keys"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
