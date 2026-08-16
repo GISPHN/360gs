@@ -1,8 +1,9 @@
-360GS v0.3c18
-Geometry-consistent ERP triangulated initialization
-Cubemap/COLMAP camera self-test runs before Brush training
-Adjacent and one-skip ERP frame pairs add guarded 2-view triangulated points after BA camera poses are fixed
-Positive depth, parallax, ray-gap and angular reprojection checks reject weak points
-Random frustum/depth initialization is removed; init.ply contains only BA/SfM and accepted 2-view geometry neighborhoods
-Brush training, SH degree 1, six-face cubemap images and bounded GPU growth remain unchanged from v0.3c17
+360GS v0.3c19
+Pose-guided dense spherical geometry + guarded browser depth inliers
+ERP features increased and matched under optimized-pose spherical epipolar constraints across offsets 1-3
+Triangulated points require positive depth, parallax, ray-gap, angular reprojection and multi-view or exceptionally strong two-view support
+Optional Depth Anything V2 Small q4 runs locally with Transformers.js 4.2.0 only when geometry remains sparse
+Relative depth is accepted only on faces calibrated by measured 3D anchors and confirmed from another camera position
+Sparse anchors are no longer duplicated with tiny isotropic jitter; initial Gaussians use local surface tangent neighborhoods and scale with trusted-anchor count
+Random frustum/depth initialization remains disabled; Brush still uses six-face 90 degree images and SH degree 1 for controlled evaluation
 Build date: 2026-08-17

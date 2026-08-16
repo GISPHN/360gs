@@ -1,4 +1,5 @@
-import { buildTriangulatedGeometrySeeds } from './geometry-seed.js?v=0.3c18';
+import { buildTriangulatedGeometrySeeds } from './geometry-seed.js?v=0.3c19';
+import { buildGuardedDepthPriorSeeds } from './depth-prior.js?v=0.3c19';
 
 const trVideo = document.querySelector('#source-video');
 const trPageProgress = document.querySelector('#progress-text');
@@ -216,36 +217,57 @@ function trSeedScale(tracks,poses){
   return Number.isFinite(base)?Math.max(.1,base*3):1;
 }
 function trTrustedSpacing(points,sceneScale){
-  const sample=points.slice(0,Math.min(points.length,700)),nn=[];
+  const sample=points.slice(0,Math.min(points.length,900)),nn=[];
   for(let i=0;i<sample.length;i++){
     let best=Infinity;const a=sample[i].position;
     for(let j=0;j<sample.length;j++)if(i!==j){const b=sample[j].position,d=Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);if(d>1e-8&&d<best)best=d;}
     if(Number.isFinite(best))nn.push(best);
   }
   const q=trSeedQuantile(nn,.5);
-  return Number.isFinite(q)&&q>1e-6?q:Math.max(sceneScale*.025,1e-4);
+  return Number.isFinite(q)&&q>1e-6?q:Math.max(sceneScale*.02,1e-4);
 }
-function trInitPly(tracks,poses,target,pairSeeds=[]){
-  const src=(tracks||[]).filter(t=>t.position?.every(Number.isFinite));
-  const stereo=(pairSeeds||[]).filter(t=>t.position?.every(Number.isFinite));
+function trDedupeTrusted(points,cell,maxCount=4200){
+  const map=new Map(),out=[];
+  const ranked=[...points].sort((a,b)=>(b.rankScore||b.score||0)-(a.rankScore||a.score||0));
+  for(const p of ranked){
+    const k=`${Math.round(p.position[0]/cell)}:${Math.round(p.position[1]/cell)}:${Math.round(p.position[2]/cell)}`;
+    if(map.has(k))continue;map.set(k,1);out.push(p);if(out.length>=maxCount)break;
+  }
+  return out;
+}
+function trLocalSurface(points,index,fallback){
+  const p=points[index].position,near=[];
+  for(let j=0;j<points.length;j++)if(j!==index){const q=points[j].position,d=Math.hypot(q[0]-p[0],q[1]-p[1],q[2]-p[2]);if(d>1e-8){near.push({j,d,v:[q[0]-p[0],q[1]-p[1],q[2]-p[2]]});}}
+  near.sort((a,b)=>a.d-b.d);const first=near.slice(0,8),spacing=trSeedQuantile(first.map(x=>x.d),.45)||fallback;
+  if(!first.length)return{spacing,t1:[1,0,0],t2:[0,1,0],normal:[0,0,1]};
+  const unit=v=>{const n=Math.hypot(...v)||1;return v.map(x=>x/n);},cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const t1=unit(first[0].v);let normal=null;
+  for(let k=1;k<first.length;k++){const n=cross(t1,unit(first[k].v)),nn=Math.hypot(...n);if(nn>.16){normal=n.map(x=>x/nn);break;}}
+  if(!normal){const ref=Math.abs(t1[1])<.8?[0,1,0]:[1,0,0],n=cross(t1,ref),nn=Math.hypot(...n)||1;normal=n.map(x=>x/nn);}
+  const t2=unit(cross(normal,t1));return{spacing,t1,t2,normal};
+}
+function trInitPly(tracks,poses,target,pairSeeds=[],depthSeeds=[]){
+  const src=(tracks||[]).filter(t=>t.position?.every(Number.isFinite)).map(t=>({position:t.position,color:[150,150,150],score:5,rankScore:5,source:'ba'}));
+  const stereo=(pairSeeds||[]).filter(t=>t.position?.every(Number.isFinite)).map(t=>({...t,rankScore:2.5+(t.score||0),source:'stereo'}));
+  const depth=(depthSeeds||[]).filter(t=>t.position?.every(Number.isFinite)).map(t=>({...t,rankScore:.8+.18*Math.min(10,t.score||0),source:'depth-prior'}));
   const cams=(poses||[]).filter(p=>p.position?.every(Number.isFinite)&&Array.isArray(p.cameraToWorld)&&p.cameraToWorld.length===9);
-  const trusted=[...stereo.map(t=>({position:t.position,color:t.color||[150,150,150],score:t.score||1,source:'stereo'})),...src.map(t=>({position:t.position,color:[150,150,150],score:1,source:'ba'}))];
-  if(trusted.length<24)throw new Error(`幾何学的に確定できた初期3D点が不足しています（${trusted.length}点）。ランダム深度seedは使用せず、安全のため3DGS学習を停止しました。`);
-  trusted.sort((a,b)=>(b.score||0)-(a.score||0));
-  const count=Math.max(10000,target||trSeedBudget()),rng=trSeedRng((trusted.length*2654435761+cams.length*40503+count)>>>0);
-  const sceneScale=trSeedScale(trusted,cams),spacing=trTrustedSpacing(trusted,sceneScale),points=[];
+  const raw=[...src,...stereo,...depth],sceneScale=trSeedScale(raw,cams),dedupeCell=Math.max(sceneScale*.0016,1e-5),trusted=trDedupeTrusted(raw,dedupeCell);
+  if(trusted.length<160)throw new Error(`幾何学的に検証できた初期3D点が不足しています（${trusted.length}点）。c19では疎な点を3万個へ複製せず、安全のため停止します。`);
+  const globalSpacing=trTrustedSpacing(trusted,sceneScale),budget=target||trSeedBudget(),count=Math.min(budget,Math.max(6000,Math.min(30000,trusted.length*12))),rng=trSeedRng((trusted.length*2654435761+cams.length*40503+count)>>>0),points=[],frames=new Array(trusted.length);
+  const sourceCounts={ba:0,stereo:0,depth:0};for(const t of trusted){if(t.source==='ba')sourceCounts.ba++;else if(t.source==='stereo')sourceCounts.stereo++;else if(t.source==='depth-prior')sourceCounts.depth++;}
   for(let i=0;i<count;i++){
-    const base=trusted[i%trusted.length],p=trReflectY3(base.position),exact=i<trusted.length;
-    let x=p[0],y=p[1],z=p[2];
+    const bi=i%trusted.length,base=trusted[bi],p0=trReflectY3(base.position),exact=i<trusted.length;let x=p0[0],y=p0[1],z=p0[2];
     if(!exact){
-      const r=spacing*(.010+.040*rng()),cz=rng()*2-1,a=rng()*Math.PI*2,ss=Math.sqrt(Math.max(0,1-cz*cz));
-      x+=r*ss*Math.cos(a);y+=r*cz;z+=r*ss*Math.sin(a);
+      const f=frames[bi]||(frames[bi]=trLocalSurface(trusted,bi,globalSpacing)),r=f.spacing*(.035+.24*Math.sqrt(rng())),a=rng()*Math.PI*2,n=(rng()-.5)*f.spacing*.035;
+      // Apply offsets in the source (+Y-up) geometry, then reflect once into
+      // the COLMAP/Brush convention.  Most variance lies in the estimated
+      // local surface tangent plane; normal jitter is deliberately small.
+      const q=[base.position[0]+r*(Math.cos(a)*f.t1[0]+Math.sin(a)*f.t2[0])+n*f.normal[0],base.position[1]+r*(Math.cos(a)*f.t1[1]+Math.sin(a)*f.t2[1])+n*f.normal[1],base.position[2]+r*(Math.cos(a)*f.t1[2]+Math.sin(a)*f.t2[2])+n*f.normal[2]],p=trReflectY3(q);x=p[0];y=p[1];z=p[2];
     }
     const c=base.color||[150,150,150];points.push([x,y,z,Math.max(0,Math.min(255,c[0]|0)),Math.max(0,Math.min(255,c[1]|0)),Math.max(0,Math.min(255,c[2]|0))]);
   }
-  const h=`ply\nformat ascii 1.0\nelement vertex ${points.length}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;
-  const body=points.map(v=>`${v[0]} ${v[1]} ${v[2]} ${v[3]} ${v[4]} ${v[5]}`).join('\n');
-  return{blob:new Blob([h,body,'\n'],{type:'application/octet-stream'}),count:points.length,anchors:trusted.length,sourceTracks:src.length,stereoPoints:stereo.length,sceneScale,spacing,randomDepthSeeds:0};
+  const h=`ply\nformat ascii 1.0\nelement vertex ${points.length}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`,body=points.map(v=>`${v[0]} ${v[1]} ${v[2]} ${v[3]} ${v[4]} ${v[5]}`).join('\n');
+  return{blob:new Blob([h,body,'\n'],{type:'application/octet-stream'}),count:points.length,anchors:trusted.length,sourceTracks:sourceCounts.ba,stereoPoints:sourceCounts.stereo,depthPoints:sourceCounts.depth,sceneScale,spacing:globalSpacing,randomDepthSeeds:0};
 }
 
 async function trDir(p,n){return p.getDirectoryHandle(n,{create:true});}
@@ -262,11 +284,22 @@ async function trBuildDataset(item,id){
   const preflight=trGeometryPreflight(selectedPoses);
   trLog(`Geometry preflight: ${preflight.checked} camera-face tests / face ${preflight.maxFaceDeg.toFixed(6)} deg / ray ${preflight.maxRayDeg.toFixed(6)} deg / camera-center ${preflight.maxCenterError.toExponential(2)} / ortho ${preflight.maxOrtho.toExponential(2)} / det ${preflight.minDet.toFixed(5)}..${preflight.maxDet.toFixed(5)}`);
   if(!preflight.ok)throw new Error('6面cubemapとCOLMAP/Brushカメラ外部パラメータの自己検査に失敗しました。誤った幾何で学習せず安全に停止しました。');
-  trProgress(2.2,'ERP対応点から幾何学的な初期3D点を追加しています');
-  const stereo=await buildTriangulatedGeometrySeeds(trVideo,item,sel,(f,text)=>trProgress(2.2+2.3*f,text));
-  trLog(`Geometry seeds: ${stereo.points.length.toLocaleString()} accepted 2-view points / ${stereo.acceptedPairs}/${stereo.pairs} useful pairs / ${stereo.rawMatches.toLocaleString()} raw matches / median parallax ${Number(stereo.medianParallaxDeg||0).toFixed(2)} deg / median reprojection ${Number(stereo.medianReprojDeg||0).toFixed(2)} deg`);
-  const seed=trInitPly(item.optimization.tracks||[],selectedPoses,trSeedBudget(),stereo.points);
-  trLog(`Initial geometry cloud: ${seed.sourceTracks} BA tracks + ${seed.stereoPoints} 2-view points -> ${seed.count.toLocaleString()} surface-anchored seeds / spacing ${seed.spacing.toFixed(4)} / random-depth seeds ${seed.randomDepthSeeds}`);
+  trProgress(2.0,'pose既知の球面epipolar制約でERP対応点を高密度化しています');
+  const stereo=await buildTriangulatedGeometrySeeds(trVideo,item,sel,(f,text)=>trProgress(2.0+2.0*f,text));
+  trLog(`Dense geometry: ${stereo.points.length.toLocaleString()} accepted points / ${stereo.multiViewPoints||0} with >=3-view support / ${stereo.acceptedPairs}/${stereo.pairs} useful pairs / ${stereo.featureCount||0} ERP features / median epipolar ${Number(stereo.medianEpipolarDeg||0).toFixed(2)} deg / reprojection ${Number(stereo.medianReprojDeg||0).toFixed(2)} deg`);
+  const baseTrusted=[...(item.optimization.tracks||[]).filter(t=>t.position?.every(Number.isFinite)).map(t=>({position:t.position,color:[150,150,150],source:'ba'})),...stereo.points];
+  let depthRenderer=null;
+  const renderDepthFace=async(fi,face,px)=>{
+    if(id!==trRunId)throw new Error('処理が更新されました。');
+    await trSeek(item.source.frames[fi].time);
+    if(!depthRenderer||depthRenderer.canvas.width!==px)depthRenderer=trRenderer(px);
+    depthRenderer.render(trVideo,face.yaw,face.pitch);
+    const out=document.createElement('canvas');out.width=px;out.height=px;const ctx=out.getContext('2d',{alpha:false});if(!ctx)throw new Error('depth prior用Canvasを作成できません。');ctx.drawImage(depthRenderer.canvas,0,0,px,px);return out;
+  };
+  const depth=await buildGuardedDepthPriorSeeds({item,selectedIndices:sel,trustedPoints:baseTrusted,faces:TR_FACES,renderFace:renderDepthFace,onProgress:(f,text)=>trProgress(4.0+1.6*f,text)});
+  trLog(`Guarded depth prior: ${depth.points.length.toLocaleString()} accepted / attempted ${depth.attempted?'yes':'no'} / valid faces ${depth.validFaces||0} / ${depth.reason}${Number.isFinite(depth.medianAlignment)?` / median align ${(depth.medianAlignment*100).toFixed(1)}%`:''}`);
+  const seed=trInitPly(item.optimization.tracks||[],selectedPoses,trSeedBudget(),stereo.points,depth.points);
+  trLog(`Initial geometry cloud: ${seed.anchors.toLocaleString()} trusted anchors (${seed.sourceTracks} BA + ${seed.stereoPoints} triangulated + ${seed.depthPoints} depth-consistent) -> ${seed.count.toLocaleString()} surface-aware seeds / spacing ${seed.spacing.toFixed(4)} / random-depth ${seed.randomDepthSeeds}`);
   await trWrite(dir,'init.ply',seed.blob);
   const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;
   for(let o=0;o<sel.length;o++){
@@ -285,14 +318,14 @@ async function trBuildDataset(item,id){
     }
   }
   await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');
-  return{dir,views:sel.length*TR_FACES.length,size,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,stereoPoints:seed.stereoPoints,seedScale:seed.sceneScale,seedSpacing:seed.spacing,randomDepthSeeds:seed.randomDepthSeeds,geometryPreflight:preflight};
+  return{dir,views:sel.length*TR_FACES.length,size,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,stereoPoints:seed.stereoPoints,depthPoints:seed.depthPoints,seedScale:seed.sceneScale,seedSpacing:seed.spacing,randomDepthSeeds:seed.randomDepthSeeds,geometryPreflight:preflight,depthPrior:depth};
 }
 
-function trPlan(size){
-  const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4,seed=trSeedBudget();
-  if(m>=12&&c>=8)return{iters:7200,minIters:4800,max:Math.max(60000,seed),res:Math.min(size,512),seed,label:'高品質・幾何整合seed＋6面cubemap',refineEvery:1600,growthStop:3600,growthFraction:.24,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  if(m>=8&&c>=6)return{iters:6400,minIters:4800,max:Math.max(50000,seed),res:Math.min(size,512),seed,label:'品質優先・幾何整合seed＋6面cubemap',refineEvery:1600,growthStop:3600,growthFraction:.21,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  return{iters:4800,minIters:3600,max:Math.max(36000,seed),res:Math.min(size,384),seed,label:'省メモリ・幾何整合seed＋6面cubemap',refineEvery:1600,growthStop:2000,growthFraction:.15,evalEvery:600,plateauDb:.12,plateauSsim:.006};
+function trPlan(size,seedCount=trSeedBudget()){
+  const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;
+  if(m>=12&&c>=8)return{iters:7600,minIters:5200,max:Math.max(60000,Math.ceil(seedCount*3.0)),res:Math.min(size,512),label:'高品質・高密度球面幾何＋depth整合',refineEvery:1200,growthStop:4200,growthFraction:.28,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  if(m>=8&&c>=6)return{iters:6800,minIters:4800,max:Math.max(50000,Math.ceil(seedCount*3.0)),res:Math.min(size,512),label:'品質優先・高密度球面幾何＋depth整合',refineEvery:1200,growthStop:4200,growthFraction:.25,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  return{iters:5200,minIters:4000,max:Math.max(36000,Math.ceil(seedCount*2.6)),res:Math.min(size,384),label:'省メモリ・高密度球面幾何',refineEvery:1400,growthStop:3000,growthFraction:.20,evalEvery:600,plateauDb:.12,plateauSsim:.006};
 }
 function trShouldEarlyStop(plan){
   const h=trEvalHistory.filter(x=>Number.isFinite(x?.psnr)&&Number.isFinite(x?.ssim)&&Number.isFinite(x?.iter));
@@ -311,7 +344,7 @@ function trShouldEarlyStop(plan){
   }
   return null;
 }
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c18`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c18', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c19`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c19', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -528,7 +561,7 @@ function trFitInterpretation(trainEval,holdout){
   if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、幾何整合seedを使用しても不足が残っています。次は直接ERP rasterization、カメラ自己較正、入力視点密度を個別に評価します。';
   if(trainEval.psnr>=20&&trainEval.ssim>=.65&&(holdout.psnr<15||holdout.ssim<.45||gap>5))return '学習画像には適合できていますが未学習画像で大きく低下しています。カメラ姿勢・対応点・3D幾何の不整合を優先して改善します。';
   if(trainEval.psnr>=20&&holdout.psnr>=18&&trainEval.ssim>=.65&&holdout.ssim>=.60)return '学習画像・未学習画像とも一定の再現性があります。次はGaussian数、SH degree、軽量densificationを段階的に増やします。';
-  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c18ではランダム深度seedを廃止し、BA点とERP 2視点三角測量点だけに初期Gaussianを拘束しています。改善が限定的なら、次は直接ERP rasterizationとカメラ自己較正を優先して比較します。';
+  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c19ではpose既知の球面epipolar対応、複数視点支持、実測点で較正したcross-view depth inlier、surface-aware初期化を組み合わせています。改善が限定的なら、次はcubemap学習を終了し直接ERP rasterizationとカメラ自己較正へ進みます。';
 }
 function trRenderFitEvaluation(res,trainEval,holdout,history){
   if(!res)return;
@@ -744,14 +777,14 @@ async function trRun(item){
   trLastEval=null;trEvalHistory=[];trLastTrainEval=null;
   trButtons(true);
   try{
-    trProgress(1,'Brush学習エンジンを初期化しています');
+    trProgress(1,'高密度な球面幾何と学習画像を準備しています');
+    const ds=await trBuildDataset(item,id),plan=trPlan(ds.size,ds.seedCount);
+    if(id!==trRunId)return;
+    trLog(`Training dataset prepared: ${ds.views} views / ${ds.size}px / ${ds.seedCount.toLocaleString()} surface-aware seeds from ${ds.seedAnchors.toLocaleString()} trusted 3D anchors`);
+    trProgress(8,'Brush学習エンジンを初期化しています');
     const rt=await trRuntimeReady();
     if(id!==trRunId)return;
     trLog('Brush WebGPU runtime ready');
-
-    trProgress(2,'Brush用の学習画像を準備しています');
-    const ds=await trBuildDataset(item,id),plan=trPlan(ds.size);
-    trLog(`Training dataset prepared: ${ds.views} views / ${ds.size}px / ${ds.seedCount.toLocaleString()} hybrid seeds (${ds.sourceTracks} optimized BA/SfM tracks, ${ds.seedAnchors.toLocaleString()} track-anchored samples)`);
     trLog('Camera convention corrected: BA/SfM +Y up -> COLMAP/Brush +Y down (F R F, F C)');
     p.querySelector('#train-views').textContent=`${ds.views}枚`;
     p.querySelector('#train-plan').textContent=`${plan.label} 最大${plan.iters.toLocaleString()}回`;
@@ -771,7 +804,7 @@ async function trRun(item){
       if('split-at-screen-size'in c)c['split-at-screen-size']=0;
       if('eval-every'in c)c['eval-every']=plan.evalEvery;
       if('sh-degree'in c)c['sh-degree']=1;
-      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} geometry-anchored seed Gaussians (${ds.sourceTracks} BA tracks + ${ds.stereoPoints} 2-view triangulated points / random-depth ${ds.randomDepthSeeds}) / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / 6-face 90deg cubemap / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
+      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} geometry-anchored seed Gaussians (${ds.sourceTracks} BA + ${ds.stereoPoints} pose-guided triangulated + ${ds.depthPoints||0} depth-consistent / random-depth ${ds.randomDepthSeeds}) / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / 6-face 90deg cubemap / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
       return c;
     });
     trTraining=t;
@@ -852,14 +885,14 @@ async function trRun(item){
     ex.view=trRepresentativeView(item);trResultView=ex.view;
     res.hidden=false;
     const range=trBoundsSummary(ex.bounds);
-    res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB / 幾何seed ${ds.seedCount.toLocaleString()}（BA ${ds.sourceTracks}点 + 2視点 ${ds.stereoPoints}点 / ランダム深度 ${ds.randomDepthSeeds}）${range?` / ${range}`:''}`;
+    res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB / surface seed ${ds.seedCount.toLocaleString()}（実3D anchor ${ds.seedAnchors.toLocaleString()}: BA ${ds.sourceTracks} + 球面三角測量 ${ds.stereoPoints} + depth整合 ${ds.depthPoints||0} / ランダム深度 ${ds.randomDepthSeeds}）${range?` / ${range}`:''}`;
     trRenderGaussianDiagnostics(res,ex.diagnostics);
     trRenderFitEvaluation(res,trLastTrainEval,trLastEval,trEvalHistory);
     res.querySelector('#train-download').onclick=()=>trDownload(ex.blob,`360gs_segment_${item.source.segment.id}.ply`);
     res.querySelector('#train-show').onclick=()=>trShow(ex.blob,ex.viewBounds||ex.bounds,ex.view).catch(e=>trMsg(`3D表示: ${e?.message||e}`,'warning'));
     trProgress(100,'3DGS生成が完了しました');
     trMsg('3DGS学習が完了しました。PLYとして保存するか、この画面で3D表示できます。','success');
-    window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,viewBounds:ex.viewBounds,diagnostics:ex.diagnostics,trainEval:trLastTrainEval,eval:trLastEval,evalHistory:[...trEvalHistory],view:ex.view,segmentId:item.source.segment.id,geometrySeed:{total:ds.seedCount,baTracks:ds.sourceTracks,twoViewPoints:ds.stereoPoints,randomDepthSeeds:ds.randomDepthSeeds,spacing:ds.seedSpacing,preflight:ds.geometryPreflight}};
+    window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,viewBounds:ex.viewBounds,diagnostics:ex.diagnostics,trainEval:trLastTrainEval,eval:trLastEval,evalHistory:[...trEvalHistory],view:ex.view,segmentId:item.source.segment.id,geometrySeed:{total:ds.seedCount,anchors:ds.seedAnchors,baTracks:ds.sourceTracks,twoViewPoints:ds.stereoPoints,depthPoints:ds.depthPoints||0,randomDepthSeeds:ds.randomDepthSeeds,spacing:ds.seedSpacing,preflight:ds.geometryPreflight,depthPrior:ds.depthPrior}};
     window.dispatchEvent(new CustomEvent('360gs:training-ready',{detail:{ready:true,count:ex.count,segmentId:item.source.segment.id}}));
   }catch(e){
     trProgress(0,'3DGS学習を継続できませんでした');
@@ -875,5 +908,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c18');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c19');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
