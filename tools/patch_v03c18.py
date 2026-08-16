@@ -112,4 +112,3 @@ Path('BUILD_VERSION.txt').write_text(
     'Brush training, SH degree 1, six-face cubemap images and bounded GPU growth remain unchanged from v0.3c17\n'
     'Build date: 2026-08-17\n'
 )
-"}
