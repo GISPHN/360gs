@@ -1,0 +1,94 @@
+name: Apply v0.3c16 direct ERP spherical geometry
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c16-direct-erp-geometry
+    paths:
+      - '.github/workflows/apply-v03c16-spherical.yml'
+      - 'tools/patch_v03c16.py'
+      - 'spherical.js'
+
+concurrency:
+  group: v03c16-spherical-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply v0.3c16 patch
+        run: python tools/patch_v03c16.py
+
+      - name: Verify direct ERP markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "sphericalDetectFeatures" pose.js
+          grep -Fq "geometrySource: erpCorrespondences ? 'direct-erp'" pose.js
+          grep -Fq "sphericalDetectFeatures" sfm.js
+          grep -Fq "spherical: true, features: sphericalFeatures" tracking.js
+          grep -Fq "Array.isArray(feature.bearing)" ba.js
+          grep -Fq "Prototype v0.3c16" video.html
+          grep -Fq "Prototype v0.3c16" index.html
+          grep -Fq "brush_js_bg.wasm?v=0.3c16" training.js
+          grep -Fq "Direct ERP spherical correspondences" BUILD_VERSION.txt
+          grep -Fq "sphericalBearingFromPixel" spherical.js
+          grep -Fq "tangentDescriptor" spherical.js
+
+      - name: Validate JavaScript syntax
+        run: |
+          node --check spherical.js
+          node --check pose.js
+          node --check sfm.js
+          node --check tracking.js
+          node --check ba.js
+          node --check training.js
+
+      - name: Validate spherical coordinate round trip
+        run: |
+          node --input-type=module <<'NODE'
+          import { sphericalBearingFromPixel, sphericalPixelFromBearing, sphericalDirectionLabel } from './spherical.js';
+          const W = 640, H = 320;
+          const probes = [[0, 160], [639, 160], [320, 160], [160, 80], [480, 240]];
+          for (const [x, y] of probes) {
+            const b = sphericalBearingFromPixel(x, y, W, H);
+            const p = sphericalPixelFromBearing(b, W, H);
+            const dx = Math.min(Math.abs(p.x - x), W - Math.abs(p.x - x));
+            if (dx > 1e-5 || Math.abs(p.y - y) > 1e-5) throw new Error(`round trip failed ${x},${y} -> ${p.x},${p.y}`);
+            const n = Math.hypot(...b);
+            if (Math.abs(n - 1) > 1e-8) throw new Error('bearing not normalized');
+            if (!['front','right','back','left'].includes(sphericalDirectionLabel(b))) throw new Error('invalid direction label');
+          }
+          console.log('Spherical ERP round trip passed');
+          NODE
+
+      - name: Ensure c13 Brush runtime remains unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s vendor/brush-js/brush_js.js
+          test -s vendor/brush-js/brush_js_bg.wasm
+          grep -Fq 'v0.3c13' vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated v0.3c16 frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add spherical.js pose.js sfm.js tracking.js ba.js training.js video.html index.html README.md BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c16 generated files are unchanged."
+          else
+            git commit -m "Apply v0.3c16 direct ERP spherical geometry"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
