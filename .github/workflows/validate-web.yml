@@ -8,6 +8,7 @@ on:
       - '*.js'
       - '*.html'
       - '*.css'
+      - 'BUILD_VERSION.txt'
       - '.github/workflows/validate-web.yml'
 
 permissions:
@@ -21,16 +22,43 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - name: Check JavaScript syntax
         run: |
           for file in *.js; do
             echo "Checking $file"
             node --check "$file"
           done
-      - name: Verify v0.3b training assets
+
+      - name: Verify current training assets and cache keys
+        shell: bash
         run: |
+          set -euo pipefail
+          test -f BUILD_VERSION.txt
           test -f training.js
           test -f training.css
-          grep -q 'training.js?v=0.3b' video.html
-          grep -q 'training.css?v=0.3b' video.html
-          grep -q "'train-panel'" autoscroll.js
+          test -f video.html
+          test -f index.html
+
+          version="$(sed -n '1s/^360GS v//p' BUILD_VERSION.txt)"
+          if [[ -z "$version" ]]; then
+            echo "Could not derive app version from BUILD_VERSION.txt" >&2
+            exit 1
+          fi
+          echo "Validating 360GS ${version}"
+
+          grep -Fq "training.js?v=${version}" video.html
+          grep -Fq "training.css?v=${version}" video.html
+          grep -Fq "Prototype v${version}" video.html
+          grep -Fq "Prototype v${version}" index.html
+          grep -Fq "document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v${version}')" training.js
+          grep -Fq "brush_js_bg.wasm?v=${version}" training.js
+          grep -Fq "'train-panel'" autoscroll.js
+
+      - name: Verify generated Brush runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s vendor/brush-js/brush_js.js
+          test -s vendor/brush-js/brush_js_bg.wasm
+          test -s vendor/brush-js/BUILD_INFO.txt
