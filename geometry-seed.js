@@ -1,4 +1,4 @@
-import { sphericalDetectFeatures } from './spherical.js?v=0.3c19';
+import { sphericalDetectFeatures } from './spherical.js?v=0.3c20';
 
 // c19: denser direct-ERP geometry with pose-guided spherical epipolar matching.
 // Camera poses have already been robustly optimized by the BA stage.  Rather
@@ -129,15 +129,15 @@ function nearestFeatureSupport(point,sourceDescriptor,candidateIndex,captured,po
   }
   if(!best||bestAngle>GS_THIRD_VIEW_ANGLE_DEG)return null;
   const corr=descriptorCorrelation(sourceDescriptor,best.descriptor);if(corr<.10)return null;
-  return{angleDeg:bestAngle,correlation:corr};
+  return{angleDeg:bestAngle,correlation:corr,frameIndex:candidateIndex,bearing:[...best.bearing],weight:clamp(.55+.45*Math.max(0,corr),.25,1.25)};
 }
 
 function thirdViewSupport(point,sourceDescriptor,ia,ib,selected,captured,poses){
   const pa=selected.indexOf(ia),pb=selected.indexOf(ib),near=[];
   for(const p of [pa-1,pa+1,pb-1,pb+1])if(p>=0&&p<selected.length&&!near.includes(selected[p])&&selected[p]!==ia&&selected[p]!==ib)near.push(selected[p]);
-  let support=0,bestAngle=Infinity;
-  for(const i of near){const s=nearestFeatureSupport(point,sourceDescriptor,i,captured,poses);if(s){support++;bestAngle=Math.min(bestAngle,s.angleDeg);}}
-  return{support,bestAngle:Number.isFinite(bestAngle)?bestAngle:null};
+  let support=0,bestAngle=Infinity;const observations=[];
+  for(const i of near){const s=nearestFeatureSupport(point,sourceDescriptor,i,captured,poses);if(s){support++;bestAngle=Math.min(bestAngle,s.angleDeg);observations.push({frameIndex:s.frameIndex,bearing:s.bearing,weight:s.weight});}}
+  return{support,bestAngle:Number.isFinite(bestAngle)?bestAngle:null,observations};
 }
 
 function dedupe(points,cell){
@@ -186,7 +186,12 @@ export async function buildTriangulatedGeometrySeeds(video,item,selectedIndices,
       if(!third.support&&!strongTwoView){rejected.multiview++;continue;}
       const ca=rgbAt(a,m.left.x,m.left.y),cb=rgbAt(b,m.right.x,m.right.y),color=[0,1,2].map(k=>Math.round((ca[k]+cb[k])*.5));
       const score=(m.confidence||.1)*(1/(.08+reproj))*(1/(.15+m.epipolarDeg))*(1+Math.min(parallax,10)/10)*(1+.35*third.support);
-      points.push({position:tri.point,color,score,parallaxDeg:parallax,reprojDeg:reproj,epipolarDeg:m.epipolarDeg,supportViews:2+third.support,pair:[ia,ib],source:'stereo'});accepted++;acceptedRaw++;
+      const observations=[
+        {frameIndex:ia,bearing:[...m.left.bearing],weight:clamp(.55+.75*(m.confidence||.1),.3,1.4)},
+        {frameIndex:ib,bearing:[...m.right.bearing],weight:clamp(.55+.75*(m.confidence||.1),.3,1.4)},
+        ...(third.observations||[]),
+      ];
+      points.push({position:tri.point,color,score,parallaxDeg:parallax,reprojDeg:reproj,epipolarDeg:m.epipolarDeg,supportViews:observations.length,pair:[ia,ib],observations,source:'stereo'});accepted++;acceptedRaw++;
     }
     if(accepted)usedPairs.add(`${ia}:${ib}`);
     onProgress(.30+(pi+1)/Math.max(1,pairList.length)*.70,`球面epipolar三角測量 ${pi+1}/${pairList.length}（採用 ${acceptedRaw}点）`);await new Promise(r=>setTimeout(r,0));

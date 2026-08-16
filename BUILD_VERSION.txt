@@ -1,9 +1,9 @@
-360GS v0.3c19
-Pose-guided dense spherical geometry + guarded browser depth inliers
-ERP features increased and matched under optimized-pose spherical epipolar constraints across offsets 1-3
-Triangulated points require positive depth, parallax, ray-gap, angular reprojection and multi-view or exceptionally strong two-view support
-Optional Depth Anything V2 Small q4 runs locally with Transformers.js 4.2.0 only when geometry remains sparse
-Relative depth is accepted only on faces calibrated by measured 3D anchors and confirmed from another camera position
-Sparse anchors are no longer duplicated with tiny isotropic jitter; initial Gaussians use local surface tangent neighborhoods and scale with trusted-anchor count
-Random frustum/depth initialization remains disabled; Brush still uses six-face 90 degree images and SH degree 1 for controlled evaluation
+360GS v0.3c20
+Post-triangulation spherical 2D-3D camera pose refinement
+c19 dense ERP geometry is retained, but accepted >=3-view correspondences are fed back into a conservative pose-only / point re-triangulation loop before Brush training
+Two reference cameras preserve gauge; rotation and translation updates are capped per iteration and globally
+Pose updates are accepted only when robust median/p90/RMS angular metrics improve; otherwise all c19 poses are restored
+Original BA anchors are re-triangulated only after an accepted pose update
+Gaussian anisotropy p90 above 25x is now surfaced as a geometry-compensation warning
+Brush training remains six-face 90 degree cubemap, SH degree 1, and browser-safe GPU-only growth so c20 isolates pose consistency
 Build date: 2026-08-17
