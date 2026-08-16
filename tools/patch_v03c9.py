@@ -23,6 +23,8 @@ def replace_once(text, old, new, label):
 # - split a small deterministic subset of the first 35% of splats, matching
 #   360GS hybrid initialization where the first 35% are BA/SfM track-anchored;
 # - keep growth capped by max_splats and growth_select_fraction;
+# - stop adding Gaussians at growth_stop_iter even though later refine ticks
+#   still reset accumulated refinement state;
 # - preserve c8 long-horizon training, grouped holdout, and adaptive stopping;
 # - keep SH degree 0 so the quality comparison remains interpretable.
 
@@ -49,7 +51,11 @@ method = '''    #[cfg(target_family = "wasm")]
         let requested = ((current as f32) * self.config.growth_select_fraction)
             .round()
             .max(0.0) as u32;
-        let grow_count = requested.min(headroom);
+        let grow_count = if iter < self.config.growth_stop_iter {
+            requested.min(headroom)
+        } else {
+            0
+        };
 
         let refiner = self
             .refine_record
