@@ -1,9 +1,12 @@
-360GS v0.3c20
-Post-triangulation spherical 2D-3D camera pose refinement
-c19 dense ERP geometry is retained, but accepted >=3-view correspondences are fed back into a conservative pose-only / point re-triangulation loop before Brush training
-Two reference cameras preserve gauge; rotation and translation updates are capped per iteration and globally
-Pose updates are accepted only when robust median/p90/RMS angular metrics improve; otherwise all c19 poses are restored
-Original BA anchors are re-triangulated only after an accepted pose update
-Gaussian anisotropy p90 above 25x is now surfaced as a geometry-compensation warning
-Brush training remains six-face 90 degree cubemap, SH degree 1, and browser-safe GPU-only growth so c20 isolates pose consistency
+360GS v0.3c21
+Direct differentiable equirectangular Gaussian projection in Brush/WebGPU
+c20 spherical geometry and post-triangulation camera pose refinement are retained unchanged
+Six-face cubemap training is replaced by two complementary direct ERP views per source position (native + 180-degree roll)
+A spherical-area alpha mask (cos latitude) and seam taper provide weighted photometric supervision while avoiding rectangular-tile seam gradients
+Brush adds an Equirectangular camera model with analytic projection Jacobian and analytic covariance/mean VJP; ERP depth sorting uses radial range
+Tiny polar caps are excluded from rasterization where longitude is mathematically singular; their spherical area weight is near zero
+ERP source width is 1024-2048 px and Brush uses an adaptive 768/1024/1536 px long-edge cap so direct ERP is not unfairly downsampled against the former 512 px per-face cubemap
+Complementary seam weights sum exactly to cos(latitude) across the native and 180-degree ERP pair, preventing longitude-dependent double weighting
+SH degree 1, c20 trusted geometry, depth guards, Gaussian budget and browser-safe GPU-only growth remain controlled
+c20 baseline: 14,747 Gaussians; train 20.47 dB / 0.581; held-out 17.25 dB / 0.530; gap 3.23 dB; anisotropy p90 43.2x
 Build date: 2026-08-17

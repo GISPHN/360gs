@@ -7,18 +7,18 @@
   <meta name="description" content="360°写真、360°動画、3D Gaussian Splattingをブラウザ内で扱う360GSプロトタイプ" />
   <title>360GS | 360°写真・動画と3DGS</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core@5.15.0/index.min.css" />
-  <link rel="stylesheet" href="./styles.css?v=0.3c20" />
+  <link rel="stylesheet" href="./styles.css?v=0.3c21" />
 </head>
 <body>
   <header class="app-header">
     <div><div class="brand">360GS</div><div class="brand-sub">360°写真と3D空間を、簡単に見る・作る・共有</div></div>
-    <span class="version">Prototype v0.3c20</span>
+    <span class="version">Prototype v0.3c21</span>
   </header>
 
   <main class="app-shell">
     <section id="home-screen" class="screen active" aria-labelledby="home-title">
       <div class="hero">
-        <p class="eyebrow">Prototype v0.3c20</p>
+        <p class="eyebrow">Prototype v0.3c21</p>
         <h1 id="home-title">360°写真も、360°動画も、ファイルを選ぶだけ。</h1>
         <p class="hero-copy">360°写真と3DGSはその場で表示できます。360°動画は撮影位置を自動推定し、安定した区間だけを使って、このPCのWebGPUで3D Gaussian Splattingを生成します。処理の進行に合わせて結果画面へ自動スクロールします。</p>
       </div>
@@ -26,7 +26,7 @@
       <div class="action-grid">
         <button id="open-panorama-button" class="action-card primary-card" type="button"><span class="card-icon" aria-hidden="true">360°</span><span class="card-title">360°写真を見る</span><span class="card-description">Insta360などから書き出した2:1の写真を選択</span></button>
         <button class="action-card primary-card" type="button" onclick="window.location.href='./gsplat.html'"><span class="card-icon" aria-hidden="true">3D</span><span class="card-title">3DGSファイルを見る</span><span class="card-description">PLY / Compressed PLY / SOGを端末内で表示</span></button>
-        <button class="action-card primary-card" type="button" onclick="window.location.href='./video.html?v=0.3c20'"><span class="card-icon" aria-hidden="true">動画</span><span class="card-title">360°動画から3Dを作る</span><span class="card-description">動画を選ぶだけで解析・3DGS学習・PLY生成まで自動処理</span></button>
+        <button class="action-card primary-card" type="button" onclick="window.location.href='./video.html?v=0.3c21'"><span class="card-icon" aria-hidden="true">動画</span><span class="card-title">360°動画から3Dを作る</span><span class="card-description">動画を選ぶだけで解析・3DGS学習・PLY生成まで自動処理</span></button>
       </div>
 
       <section class="status-card" aria-labelledby="status-title"><div class="status-card-heading"><h2 id="status-title">この端末の確認</h2><button id="recheck-button" class="text-button" type="button">もう一度確認</button></div><div id="environment-status" class="environment-status" aria-live="polite"></div></section>
@@ -44,6 +44,6 @@
   <div id="loading-overlay" class="loading-overlay" hidden><div class="loading-box" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><div id="loading-text">写真を確認しています</div></div></div>
   <script>window.__360gsReady=false;window.setTimeout(function(){if(window.__360gsReady)return;var target=document.getElementById('environment-status');if(target){target.innerHTML='<div class="status-row warn"><span class="status-dot"></span><span>アプリの読み込みに時間がかかっています。インターネット接続を確認して、ページを再読み込みしてください。</span></div>';}},6000);</script>
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js","@photo-sphere-viewer/core":"https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core@5.15.0/index.module.js"}}</script>
-  <script type="module" src="./app.js?v=0.3c20"></script>
+  <script type="module" src="./app.js?v=0.3c21"></script>
 </body>
 </html>
