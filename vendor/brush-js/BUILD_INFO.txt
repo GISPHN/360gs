@@ -1,6 +1,7 @@
 Brush JavaScript/WebAssembly runtime.
 Compiled runtime reused from the validated v0.3c10 compatibility build at ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS v0.3c11 is a frontend/model-configuration experiment: SH degree 1 instead of 0.
-Views, source-position holdout, BA/SfM hybrid seeds, Gaussian growth schedule, resolution, optimizer horizon, and adaptive stopping are unchanged from v0.3c10.
-The pinned Brush loader expands init.ply splats to the configured SH degree before training.
+360GS v0.3c12 is a frontend/training-configuration experiment testing Gaussian density after the negligible SH1 result.
+Only growth-select-fraction changes from v0.3c11: 0.08/0.07/0.05 -> 0.24/0.21/0.15 by device tier.
+SH degree 1, views, source-position holdout, BA/SfM hybrid seeds, growth timing, resolution, optimizer horizon, and adaptive stopping remain unchanged.
+The existing 36k/50k/60k device safety caps remain active.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.

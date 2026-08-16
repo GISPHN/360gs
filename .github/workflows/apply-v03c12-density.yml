@@ -1,0 +1,65 @@
+name: Apply v0.3c12 Gaussian density comparison
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c12-density-comparison
+    paths:
+      - '.github/workflows/apply-v03c12-density.yml'
+      - 'tools/patch_v03c12.py'
+
+concurrency:
+  group: v03c12-density-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply v0.3c12 single-variable patch
+        run: python tools/patch_v03c12.py
+
+      - name: Verify controlled density markers
+        run: |
+          grep -q 'growthFraction:.24' training.js
+          grep -q 'growthFraction:.21' training.js
+          grep -q 'growthFraction:.15' training.js
+          grep -q "c\['sh-degree'\]=1" training.js
+          grep -q 'Gaussian密度比較' training.js
+          grep -q 'Prototype v0.3c12' training.js
+          grep -q 'Prototype v0.3c12' index.html
+          grep -q 'Prototype v0.3c12' video.html
+          grep -q 'brush_js_bg.wasm?v=0.3c12' training.js
+          grep -q 'Only training change from v0.3c11: growth-select-fraction x3' BUILD_VERSION.txt
+          grep -q '34,992 Gaussians' BUILD_VERSION.txt
+          python -m py_compile tools/patch_v03c12.py
+
+      - name: Validate JavaScript syntax
+        run: node --check training.js
+
+      - name: Ensure validated Brush WASM runtime is retained
+        run: |
+          test -s vendor/brush-js/brush_js_bg.wasm
+          test -s vendor/brush-js/brush_js.js
+
+      - name: Commit v0.3c12 generated frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js index.html video.html README.md BUILD_VERSION.txt vendor/brush-js/BUILD_INFO.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c12 output is unchanged."
+          else
+            git commit -m "Apply v0.3c12 Gaussian density comparison"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
