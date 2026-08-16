@@ -1,0 +1,42 @@
+name: Apply v0.3c5 held-out reprojection evaluation
+
+on:
+  push:
+    paths:
+      - '.github/scripts/apply_v03c5_holdout_eval.py'
+      - '.github/workflows/apply-v03c5-holdout-eval.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply held-out evaluation patch
+        run: python .github/scripts/apply_v03c5_holdout_eval.py
+      - name: Validate JavaScript
+        run: node --check training.js
+      - name: Verify evaluation markers
+        run: |
+          grep -q "eval-split-every.*8" training.js
+          grep -q "trRenderHoldoutEvaluation" training.js
+          grep -q "Prototype v0.3c5" training.js
+          grep -q "v0.3c5" video.html
+      - name: Commit held-out evaluation update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js video.html index.html BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Add held-out reprojection evaluation v0.3c5"
+          git pull --rebase origin main
+          git push origin HEAD:main
