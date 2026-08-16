@@ -92,7 +92,8 @@ jobs:
       - name: Verify Brush runtime is intentionally unchanged
         run: |
           test -s vendor/brush-js/brush_js_bg.wasm
-          grep -Fq "GPU-only bounded Gaussian growth" vendor/brush-js/BUILD_INFO.txt
+          grep -Fq "Brush JavaScript/WebAssembly runtime." vendor/brush-js/BUILD_INFO.txt
+          grep -Fq "SH degree 1" vendor/brush-js/BUILD_INFO.txt
 
       - name: Commit generated c19 frontend
         run: |
