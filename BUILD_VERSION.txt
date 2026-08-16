@@ -1,4 +1,3 @@
-360GS v0.3c4
-BA/SfM to COLMAP/Brush camera-coordinate convention correction
-Cache-busted training assets verified
+360GS v0.3c5
+Held-out reprojection evaluation with Brush PSNR and SSIM
 Build date: 2026-08-16

@@ -18,6 +18,8 @@ let trResultUrl = null;
 let trViewerCleanup = null;
 let trResultBounds = null;
 let trResultView = null;
+let trLastEval = null;
+let trEvalHistory = [];
 
 function trPanel() {
   let p = document.querySelector('#train-panel');
@@ -184,8 +186,11 @@ function trApply(rt,msg,plan){
     trProgress(20+77*i/plan.iters,`3DGSを学習しています ${Math.min(100,Math.round(i/plan.iters*100))}%`);
   }
   if(k==='EvalResult'){
-    if(msg.psnr!=null)p.querySelector('#train-psnr').textContent=Number(msg.psnr).toFixed(2);
-    if(msg.ssim!=null)p.querySelector('#train-ssim').textContent=Number(msg.ssim).toFixed(3);
+    const psnr=msg.psnr==null?NaN:Number(msg.psnr),ssim=msg.ssim==null?NaN:Number(msg.ssim),iter=msg.iter==null?null:Number(msg.iter);
+    if(Number.isFinite(psnr))p.querySelector('#train-psnr').textContent=psnr.toFixed(2);
+    if(Number.isFinite(ssim))p.querySelector('#train-ssim').textContent=ssim.toFixed(3);
+    trLastEval={psnr,ssim,iter};trEvalHistory.push(trLastEval);
+    trLog(`Held-out evaluation${iter!=null?` @ ${iter}`:''}: PSNR ${Number.isFinite(psnr)?psnr.toFixed(2):'—'} dB / SSIM ${Number.isFinite(ssim)?ssim.toFixed(3):'—'}`);
   }
   if(k==='DoneTraining')trLog('Brush training done');
   if(k==='Warning'&&msg.text){
@@ -321,6 +326,21 @@ function trRenderGaussianDiagnostics(res,d){
   const f=v=>Number.isFinite(v)?v.toFixed(4):'—',pct=v=>Number.isFinite(v)?`${(v*100).toFixed(1)}%`:'—';
   e.innerHTML=`<strong>Gaussian品質診断</strong><br>scale 最大軸: 中央値 ${f(d.scale50)} / p90 ${f(d.scale90)} / p99 ${f(d.scale99)}<br>シーン半径比: p90 ${pct(d.rel90)} / p99 ${pct(d.rel99)}　・　異方性p90 ${Number.isFinite(d.ratio90)?d.ratio90.toFixed(1):'—'}倍<br>opacity: p10 ${pct(d.opacity10)} / 中央値 ${pct(d.opacity50)} / p90 ${pct(d.opacity90)}<br>${d.verdict}`;
 }
+function trHoldoutInterpretation(e){
+  if(!e||!Number.isFinite(e.psnr)||!Number.isFinite(e.ssim))return '検証画像の評価値を取得できませんでした。';
+  if(e.psnr>=22&&e.ssim>=.70)return '未学習画像も比較的よく再現できています。カメラ姿勢・幾何の大きな不整合より、Gaussian数・SH degree・densificationなど表現力側を次に検討します。';
+  if(e.psnr<15||e.ssim<.45)return '未学習画像の再現性が低い状態です。Gaussian数だけを増やす前に、カメラ姿勢・対応点・3D幾何の不整合を優先して確認します。';
+  return '未学習画像の再現性は中間的です。カメラ姿勢・幾何とGaussian表現力の両方が制約になっている可能性があるため、次段階では再投影誤差と容量増加の比較試験を行います。';
+}
+function trRenderHoldoutEvaluation(res,e,history){
+  if(!res)return;
+  let box=res.querySelector('#train-result-eval');
+  if(!box){box=document.createElement('div');box.id='train-result-eval';box.className='train-result-meta';const d=res.querySelector('#train-result-diagnostics');(d||res.querySelector('#train-result-meta'))?.insertAdjacentElement('afterend',box);}
+  const n=Array.isArray(history)?history.length:0;
+  const psnr=e&&Number.isFinite(e.psnr)?`${e.psnr.toFixed(2)} dB`:'—';
+  const ssim=e&&Number.isFinite(e.ssim)?e.ssim.toFixed(3):'—';
+  box.innerHTML=`<strong>未学習画像での再投影評価</strong><br>PSNR ${psnr} / SSIM ${ssim}${n?` / 評価 ${n}回`:''}<br><span>約1/8の画像を3DGS学習には使用せず、Brushが同じ推定カメラから再レンダリングして評価しています。</span><br>${trHoldoutInterpretation(e)}`;
+}
 function trRepresentativeView(item){const poses=item?.optimization?.poses||[];if(!poses.length)return null;const i=Math.max(0,Math.min(poses.length-1,Math.floor((poses.length-1)/2)));const p=poses[i],R=p?.cameraToWorld,C=p?.position;if(!Array.isArray(R)||R.length!==9||!Array.isArray(C)||C.length!==3)return null;let f=[R[2],-R[5],R[8]];const n=Math.hypot(f[0],f[1],f[2])||1;f=f.map(v=>v/n);const tm=item?.source?.frames?.[i]?.time;return{position:trReflectY3(C),forward:f,index:i,time:Number.isFinite(tm)?tm:null};}
 function trBoundsSummary(b){if(!b?.lo||!b?.hi)return'';const d=b.hi.map((v,i)=>Math.max(0,v-b.lo[i]));return`範囲 ${d.map(v=>v.toFixed(2)).join(' × ')}（任意スケール）`;}
 async function trExport(rt,training){const s=training.currentSplats();if(!s||!s.numSplats)throw new Error('学習結果のGaussianを取得できません。');const b=s.buffers();if(!b)throw new Error('GPU上のGaussianを取得できません。');trProgress(98,'3DGSをPLYへ変換しています');const[t,h,o]=await Promise.all([trRead(rt.device,b.transforms),trRead(rt.device,b.shCoeffs),trRead(rt.device,b.rawOpacities)]);const bounds=trRobustBounds(t,s.numSplats),diagnostics=trGaussianDiagnostics(t,o,s.numSplats,bounds);trResultBounds=bounds;trLog(`Gaussian diagnostics: scale p50=${diagnostics.scale50.toFixed(4)} p90=${diagnostics.scale90.toFixed(4)} p99=${diagnostics.scale99.toFixed(4)} / radius ratios p90=${(diagnostics.rel90*100).toFixed(1)}% p99=${(diagnostics.rel99*100).toFixed(1)}% / opacity median=${(diagnostics.opacity50*100).toFixed(1)}%`);return{blob:trPly(s.numSplats,s.shDegree,t,h,o),count:s.numSplats,degree:s.shDegree,bounds,diagnostics};}
@@ -435,6 +455,7 @@ async function trRun(item){
   p.querySelector('#train-elapsed').textContent='—';
   p.querySelector('#train-psnr').textContent='—';
   p.querySelector('#train-ssim').textContent='—';
+  trLastEval=null;trEvalHistory=[];
   trButtons(true);
   try{
     trProgress(1,'Brush学習エンジンを初期化しています');
@@ -457,10 +478,11 @@ async function trRun(item){
       if('total-train-iters'in c)c['total-train-iters']=plan.iters;
       if('max-splats'in c)c['max-splats']=plan.max;
       if('max-resolution'in c)c['max-resolution']=plan.res;
+      if('eval-split-every'in c)c['eval-split-every']=8;
       const refineEvery=Math.max(32,Math.min(64,Math.max(1,Math.round(ds.views/10))*10));
       if('refine-every'in c)c['refine-every']=refineEvery;
       if('eval-every'in c)c['eval-every']=Math.max(500,Math.floor(plan.iters/4));if('sh-degree'in c)c['sh-degree']=0;
-      trLog(`Training config: ${plan.iters} iterations / fixed browser Gaussian budget / ${plan.res}px / SH degree 0 / stats reset every ${refineEvery} / random initialization`);
+      trLog(`Training config: ${plan.iters} iterations / fixed browser Gaussian budget / ${plan.res}px / SH degree 0 / hold-out every 8th image / eval every ${Math.max(500,Math.floor(plan.iters/4))} steps / stats reset every ${refineEvery} / random initialization`);
       return c;
     });
     trTraining=t;
@@ -536,11 +558,12 @@ async function trRun(item){
     const range=trBoundsSummary(ex.bounds);
     res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB${range?` / ${range}`:''}`;
     trRenderGaussianDiagnostics(res,ex.diagnostics);
+    trRenderHoldoutEvaluation(res,trLastEval,trEvalHistory);
     res.querySelector('#train-download').onclick=()=>trDownload(ex.blob,`360gs_segment_${item.source.segment.id}.ply`);
     res.querySelector('#train-show').onclick=()=>trShow(ex.blob,ex.bounds,ex.view).catch(e=>trMsg(`3D表示: ${e?.message||e}`,'warning'));
     trProgress(100,'3DGS生成が完了しました');
     trMsg('3DGS学習が完了しました。PLYとして保存するか、この画面で3D表示できます。','success');
-    window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,diagnostics:ex.diagnostics,view:ex.view,segmentId:item.source.segment.id};
+    window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,diagnostics:ex.diagnostics,eval:trLastEval,evalHistory:[...trEvalHistory],view:ex.view,segmentId:item.source.segment.id};
     window.dispatchEvent(new CustomEvent('360gs:training-ready',{detail:{ready:true,count:ex.count,segmentId:item.source.segment.id}}));
   }catch(e){
     trProgress(0,'3DGS学習を継続できませんでした');
@@ -556,5 +579,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c4');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c5');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
