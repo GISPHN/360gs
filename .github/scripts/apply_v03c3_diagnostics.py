@@ -44,22 +44,19 @@ function trRenderGaussianDiagnostics(res,d){
 
 old = "async function trExport(rt,training){const s=training.currentSplats();if(!s||!s.numSplats)throw new Error('学習結果のGaussianを取得できません。');const b=s.buffers();if(!b)throw new Error('GPU上のGaussianを取得できません。');trProgress(98,'3DGSをPLYへ変換しています');const[t,h,o]=await Promise.all([trRead(rt.device,b.transforms),trRead(rt.device,b.shCoeffs),trRead(rt.device,b.rawOpacities)]);const bounds=trRobustBounds(t,s.numSplats);trResultBounds=bounds;return{blob:trPly(s.numSplats,s.shDegree,t,h,o),count:s.numSplats,degree:s.shDegree,bounds};}"
 new = "async function trExport(rt,training){const s=training.currentSplats();if(!s||!s.numSplats)throw new Error('学習結果のGaussianを取得できません。');const b=s.buffers();if(!b)throw new Error('GPU上のGaussianを取得できません。');trProgress(98,'3DGSをPLYへ変換しています');const[t,h,o]=await Promise.all([trRead(rt.device,b.transforms),trRead(rt.device,b.shCoeffs),trRead(rt.device,b.rawOpacities)]);const bounds=trRobustBounds(t,s.numSplats),diagnostics=trGaussianDiagnostics(t,o,s.numSplats,bounds);trResultBounds=bounds;trLog(`Gaussian diagnostics: scale p50=${diagnostics.scale50.toFixed(4)} p90=${diagnostics.scale90.toFixed(4)} p99=${diagnostics.scale99.toFixed(4)} / radius ratios p90=${(diagnostics.rel90*100).toFixed(1)}% p99=${(diagnostics.rel99*100).toFixed(1)}% / opacity median=${(diagnostics.opacity50*100).toFixed(1)}%`);return{blob:trPly(s.numSplats,s.shDegree,t,h,o),count:s.numSplats,degree:s.shDegree,bounds,diagnostics};}"
-if old not in s:
-    raise SystemExit('trExport anchor not found')
-s = s.replace(old,new,1)
+if old in s:
+    s = s.replace(old,new,1)
 
 old2 = "res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB${range?` / ${range}`:''}`;"
-new2 = old2 + "\n    trRenderGaussianDiagnostics(res,ex.diagnostics);"
-if old2 not in s:
-    raise SystemExit('result meta anchor not found')
-s = s.replace(old2,new2,1)
+if old2 in s and 'trRenderGaussianDiagnostics(res,ex.diagnostics);' not in s:
+    s = s.replace(old2,old2 + "\n    trRenderGaussianDiagnostics(res,ex.diagnostics);",1)
 
 old3 = "window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,view:ex.view,segmentId:item.source.segment.id};"
 new3 = "window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,diagnostics:ex.diagnostics,view:ex.view,segmentId:item.source.segment.id};"
-if old3 not in s:
-    raise SystemExit('training result anchor not found')
-s = s.replace(old3,new3,1)
+if old3 in s:
+    s = s.replace(old3,new3,1)
 
+s = s.replace("Prototype v0.3c2", "Prototype v0.3c3")
 p.write_text(s,encoding='utf-8')
 
 for name in ['video.html','index.html']:
