@@ -238,9 +238,9 @@ async function trBuildDataset(item,id){
 
 function trPlan(size){
   const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4,seed=trSeedBudget();
-  if(m>=12&&c>=8)return{iters:7200,minIters:4800,max:Math.max(60000,seed),res:Math.min(size,512),seed,label:'高品質・限定densification',refineEvery:1600,growthStop:3600,growthFraction:.08,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  if(m>=8&&c>=6)return{iters:6400,minIters:4800,max:Math.max(50000,seed),res:Math.min(size,512),seed,label:'品質優先・限定densification',refineEvery:1600,growthStop:3600,growthFraction:.07,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  return{iters:4800,minIters:3600,max:Math.max(36000,seed),res:Math.min(size,384),seed,label:'省メモリ・限定densification',refineEvery:1600,growthStop:2000,growthFraction:.05,evalEvery:600,plateauDb:.12,plateauSsim:.006};
+  if(m>=12&&c>=8)return{iters:7200,minIters:4800,max:Math.max(60000,seed),res:Math.min(size,512),seed,label:'高品質・GPU内軽量growth',refineEvery:1600,growthStop:3600,growthFraction:.08,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  if(m>=8&&c>=6)return{iters:6400,minIters:4800,max:Math.max(50000,seed),res:Math.min(size,512),seed,label:'品質優先・GPU内軽量growth',refineEvery:1600,growthStop:3600,growthFraction:.07,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  return{iters:4800,minIters:3600,max:Math.max(36000,seed),res:Math.min(size,384),seed,label:'省メモリ・GPU内軽量growth',refineEvery:1600,growthStop:2000,growthFraction:.05,evalEvery:600,plateauDb:.12,plateauSsim:.006};
 }
 function trShouldEarlyStop(plan){
   const h=trEvalHistory.filter(x=>Number.isFinite(x?.psnr)&&Number.isFinite(x?.ssim)&&Number.isFinite(x?.iter));
@@ -255,7 +255,7 @@ function trShouldEarlyStop(plan){
   }
   return null;
 }
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c8`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c8', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c9`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c9', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -283,7 +283,7 @@ function trApply(rt,msg,plan){
     trProgress(19,'データセットと初期Gaussianの準備が完了しました');
     trLog('Brush loading done');
   }
-  if(k==='RefineStep'&&msg.numSplats!=null){const n=Number(msg.numSplats);p.querySelector('#train-splats').textContent=n.toLocaleString();trLog(`Bounded densification/refinement complete: ${n.toLocaleString()} Gaussians`);}
+  if(k==='RefineStep'&&msg.numSplats!=null){const n=Number(msg.numSplats);p.querySelector('#train-splats').textContent=n.toLocaleString();trLog(`GPU-only bounded growth complete: ${n.toLocaleString()} Gaussians`);}
   if(k==='TrainStep'){
     const i=msg.iter??0;
     p.querySelector('#train-iter').textContent=`${i.toLocaleString()} / ${plan.iters.toLocaleString()}`;
@@ -354,10 +354,13 @@ function trDiagStageLabel(stage){
     190:'Gaussianの探索ノイズを更新しています',
     195:'Gaussian探索ノイズの更新が完了しました',
     200:'GPU学習1ステップの内部処理が完了しました',
-    210:'限定Gaussian densification・pruningを実行しています',
+    210:'GPU内軽量Gaussian growthを開始しています',
     211:'refinement統計をリセットしています',
+    212:'追加Gaussianの対象をCPU readbackなしで選択しています',
+    214:'GaussianとOptimizer状態をGPU上で分割しています',
+    216:'GPU内Gaussian分割が完了しました',
     219:'refinement統計のリセットが完了しました',
-    220:'限定Gaussian densification・pruningが完了しました'
+    220:'GPU内軽量Gaussian growthが完了しました'
   };
   return labels[stage]||'';
 }
@@ -426,7 +429,7 @@ function trGaussianDiagnostics(t,o,n,bounds){
   d.rel90=d.scale90/radius;d.rel99=d.scale99/radius;
   if(d.rel90>.12||d.rel99>.35)d.verdict='大きなGaussianが多く、ぼけの主因になっている可能性があります。';
   else if(d.opacity50<.04)d.verdict='Gaussianの透明度が低く、復元が薄くなっている可能性があります。';
-  else d.verdict='Gaussian scaleの極端な膨張は目立ちません。BA/SfM seedと限定densification後のため、残るぼけは視点密度・幾何・解像度・SH degree・最適化収束を切り分けます。';
+  else d.verdict='Gaussian scaleの極端な膨張は目立ちません。BA/SfM seedとGPU内軽量growth後のため、残るぼけは視点密度・幾何・解像度・SH degree・最適化収束を切り分けます。';
   return d;
 }
 function trRenderGaussianDiagnostics(res,d){
@@ -440,7 +443,7 @@ function trFitInterpretation(trainEval,holdout){
   const tv=trainEval&&Number.isFinite(trainEval.psnr)&&Number.isFinite(trainEval.ssim),hv=holdout&&Number.isFinite(holdout.psnr)&&Number.isFinite(holdout.ssim);
   if(!tv||!hv)return '学習画像と未学習画像の両方の評価値が揃っていません。';
   const gap=trainEval.psnr-holdout.psnr;
-  if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、現時点ではカメラ姿勢だけを主因とせず、BA/SfM seed・限定densificationを使用しても学習画像への適合が低いため、次は入力視点密度、カメラ幾何、解像度、SH degreeを個別に評価します。';
+  if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、現時点ではカメラ姿勢だけを主因とせず、BA/SfM seed・GPU内軽量growthを使用しても学習画像への適合が低いため、次は入力視点密度、カメラ幾何、解像度、SH degreeを個別に評価します。';
   if(trainEval.psnr>=20&&trainEval.ssim>=.65&&(holdout.psnr<15||holdout.ssim<.45||gap>5))return '学習画像には適合できていますが未学習画像で大きく低下しています。カメラ姿勢・対応点・3D幾何の不整合を優先して改善します。';
   if(trainEval.psnr>=20&&holdout.psnr>=18&&trainEval.ssim>=.65&&holdout.ssim>=.60)return '学習画像・未学習画像とも一定の再現性があります。次はGaussian数、SH degree、軽量densificationを段階的に増やします。';
   return '学習画像への適合と未学習画像への一般化の両方が中間的です。容量改善とカメラ姿勢改善を一度に変えず、次段階で個別に比較します。';
@@ -596,10 +599,10 @@ async function trRun(item){
       if('refine-every'in c)c['refine-every']=plan.refineEvery;
       if('growth-stop-iter'in c)c['growth-stop-iter']=plan.growthStop;
       if('growth-select-fraction'in c)c['growth-select-fraction']=plan.growthFraction;
-      if('split-at-screen-size'in c)c['split-at-screen-size']=.5;
+      if('split-at-screen-size'in c)c['split-at-screen-size']=0;
       if('eval-every'in c)c['eval-every']=plan.evalEvery;
       if('sh-degree'in c)c['sh-degree']=0;
-      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} BA/SfM-informed seed Gaussians / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 0 / source-position hold-out every 6th group / eval every ${plan.evalEvery} / bounded refine every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}%`);
+      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} BA/SfM-informed seed Gaussians / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 0 / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
       return c;
     });
     trTraining=t;
@@ -703,5 +706,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c8');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c9');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';

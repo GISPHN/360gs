@@ -1,0 +1,122 @@
+name: Build Brush JS v0.3c9 GPU-safe growth
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - v03c9-gpu-safe-growth
+    paths:
+      - '.github/workflows/build-brush-js-v03c9.yml'
+      - 'tools/patch_v03c9.py'
+
+concurrency:
+  group: brush-js-v03c9-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout compatibility-pinned Brush source
+        uses: actions/checkout@v4
+        with:
+          repository: ArthurBrussee/brush
+          ref: 3b80985709e2ec04fd6c8622a40e36473647a8e0
+          path: _brush
+          lfs: false
+
+      - name: Restore patch-compatible frontend baseline
+        run: |
+          git checkout c2db1e79967705de7212390933056909d7cb1e1d -- training.js video.html index.html README.md
+
+      - name: Apply v0.3b9 diagnostic base patches
+        run: python tools/patch_v03b9.py
+
+      - name: Apply v0.3c0 browser safety patches
+        run: python tools/patch_v03c0.py
+
+      - name: Restore v0.3c5 frontend for reproducible c6 patch
+        run: |
+          git checkout d185cab9ef18d409689cf51f2395bfec4389dbde -- training.js video.html index.html README.md BUILD_VERSION.txt
+
+      - name: Apply v0.3c6 train-fit evaluation patch
+        run: python tools/patch_v03c6.py
+
+      - name: Apply v0.3c7 source-position and hybrid-seed patch
+        run: python tools/patch_v03c7.py
+
+      - name: Apply v0.3c8 adaptive long-horizon patch
+        run: python tools/patch_v03c8.py
+
+      - name: Apply v0.3c9 GPU-safe growth patch
+        run: python tools/patch_v03c9.py
+
+      - name: Verify v0.3c9 markers
+        run: |
+          grep -q 'refine_browser_growth_only' _brush/crates/brush-train/src/train.rs
+          grep -q 'iter < self.config.growth_stop_iter' _brush/crates/brush-train/src/train.rs
+          grep -q 'split a bounded geometry-backed subset entirely on the GPU' _brush/crates/brush-process/src/train_stream.rs
+          grep -q "212:'追加Gaussianの対象をCPU readbackなしで選択しています'" training.js
+          grep -q "c\['split-at-screen-size'\]=0" training.js
+          grep -q 'GPU-only growth every' training.js
+          grep -q 'Prototype v0.3c9' training.js
+          grep -q 'Prototype v0.3c9' index.html
+          grep -q 'Prototype v0.3c9' video.html
+          grep -q 'brush_js_bg.wasm?v=0.3c9' training.js
+          grep -q 'wasm-opt = false' _brush/apps/brush-js/Cargo.toml
+          python -m py_compile tools/patch_v03c9.py
+
+      - name: Validate JavaScript
+        run: node --check training.js
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Build brush-js
+        run: |
+          rm -rf vendor/brush-js
+          mkdir -p vendor/brush-js
+          wasm-pack build _brush/apps/brush-js \
+            --release \
+            --target web \
+            --out-dir "$GITHUB_WORKSPACE/vendor/brush-js" \
+            --out-name brush_js
+          rm -f vendor/brush-js/.gitignore
+          printf '%s\n' \
+            'Brush JavaScript/WebAssembly runtime.' \
+            'Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.' \
+            '360GS extension: v0.3c9 source-position holdout, BA/SfM hybrid seeds, GPU-only bounded Gaussian growth, and adaptive convergence stopping.' \
+            'The browser growth path performs no training-time pruning, no argwhere/readback, and no bounds recomputation.' \
+            'Growth remains device-capped at 36k/50k/60k, scheduled approximately every 1600 iterations with 5-8% additions, and stops at growth_stop_iter.' \
+            'SH degree remains 0 for controlled comparison with c7/c8.' \
+            'wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.' \
+            'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
+            > vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated runtime and UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/brush-js training.js index.html video.html README.md BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c9 output is unchanged."
+          else
+            git commit -m "Add v0.3c9 GPU-safe growth runtime"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
