@@ -48,16 +48,17 @@ if old not in s:
     raise SystemExit('trExport anchor not found')
 s = s.replace(old,new,1)
 
-old2 = "res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB${trBoundsSummary(ex.bounds)?` / ${trBoundsSummary(ex.bounds)}`:''}`;"
+old2 = "res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB${range?` / ${range}`:''}`;"
 new2 = old2 + "\n    trRenderGaussianDiagnostics(res,ex.diagnostics);"
 if old2 not in s:
     raise SystemExit('result meta anchor not found')
 s = s.replace(old2,new2,1)
 
-old3 = "window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,view:trResultView,segmentId:item.source.segment.id};"
-new3 = "window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,diagnostics:ex.diagnostics,view:trResultView,segmentId:item.source.segment.id};"
-if old3 in s:
-    s = s.replace(old3,new3,1)
+old3 = "window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,view:ex.view,segmentId:item.source.segment.id};"
+new3 = "window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,diagnostics:ex.diagnostics,view:ex.view,segmentId:item.source.segment.id};"
+if old3 not in s:
+    raise SystemExit('training result anchor not found')
+s = s.replace(old3,new3,1)
 
 p.write_text(s,encoding='utf-8')
 
