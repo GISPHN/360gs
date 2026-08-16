@@ -1,7 +1,7 @@
 Brush JavaScript/WebAssembly runtime.
-Built from ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS extension: v0.3c7 source-position holdout and BA/SfM-informed hybrid initialization.
-Browser seed budget is device-adaptive (16k/24k/30k); SH degree remains 0 for this controlled comparison.
-Full Brush prune/densify refinement remains enabled on native targets and is bypassed only on wasm.
+Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
+360GS extension: v0.3c8 source-position holdout, BA/SfM hybrid seeds, sparse bounded browser densification, and adaptive convergence stopping.
+Browser plan: 16k/24k/30k initial seeds; 36k/50k/60k caps; refinement approximately every 1600 iterations; growth fraction 5-8%; SH degree 0.
+Brush 1.0.0 (2026-08-15) was reviewed but is intentionally not mixed into this controlled c7-to-c8 quality experiment.
 wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
