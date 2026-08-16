@@ -1,0 +1,135 @@
+name: Apply v0.3c17 guarded BA candidate fallback v2
+
+on:
+  push:
+    branches:
+      - v03c17-guarded-ba-candidate
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          ref: v03c17-guarded-ba-candidate
+
+      - name: Apply v0.3c17 patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected text not found in {path}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          dataset = Path('dataset.js')
+          text = dataset.read_text(encoding='utf-8')
+          marker = 'async function dsRun(detail) {'
+          helpers = '''function dsIsGuardedCandidate(item) {
+            const opt = item?.optimization, final = opt?.final;
+            if (!opt || !final || opt.quality !== 'candidate' || opt.rolledBack) return false;
+            return (
+              opt.tracks.length >= 18 &&
+              final.inlierCount >= 55 &&
+              final.medianDeg <= 1.0 &&
+              final.rmsDeg <= 1.6 &&
+              final.outlierRate <= 0.15 &&
+              (opt.prunedRate || 0) <= 0.75
+            );
+          }
+          function dsCandidateScore(item) {
+            const opt = item.optimization, final = opt.final;
+            return opt.tracks.length * 4 + final.inlierCount * 0.8 - final.medianDeg * 25 - final.rmsDeg * 12 - final.outlierRate * 100;
+          }
+          function dsSelectBaItems(detail) {
+            const good = Array.isArray(detail?.good) ? detail.good : [];
+            if (good.length) return { items: [...good], mode: 'good' };
+            const guarded = (Array.isArray(detail?.usable) ? detail.usable : [])
+              .filter(dsIsGuardedCandidate)
+              .sort((a, b) => dsCandidateScore(b) - dsCandidateScore(a));
+            return { items: guarded.slice(0, 1), mode: guarded.length ? 'candidate' : 'none' };
+          }
+
+          '''
+          if marker not in text:
+              raise SystemExit('dsRun marker not found')
+          dataset.write_text(text.replace(marker, helpers + marker, 1), encoding='utf-8')
+
+          replace_once('dataset.js',
+            '最適化が良好な区間だけを使い、各360°キーフレームを前・右・後・左の4方向へ高画質な透視画像として展開します。生成後に画像の情報量を自動検査し、正常な場合だけCOLMAP形式と初期疎点群をZIPにまとめます。',
+            '全体最適化が良好な区間を優先します。良好区間がない場合でも、トラック数・角度誤差・RMS・外れ観測率・事前除外率の厳格な安全条件を満たす最適化候補を1区間だけ品質確認へ進めます。条件を満たさない場合は停止理由を明示します。')
+          replace_once('dataset.js',
+            '  if (dsRunning || !detail?.good?.length || !dsSourceVideo) return;',
+            '  if (dsRunning || !dsSourceVideo) return;\n  const selection = dsSelectBaItems(detail);\n  const selected = selection.items;')
+          replace_once('dataset.js',
+            "${detail.good.map((x) => `${x.source.segment.id}-${x.optimization.poses.length}-${x.optimization.final.medianDeg.toFixed(4)}`).join('|')}",
+            "${selected.map((x) => `${x.source.segment.id}-${x.optimization.poses.length}-${x.optimization.final.medianDeg.toFixed(4)}`).join('|')}")
+          replace_once('dataset.js',
+            "  panel.hidden = false; const list = panel.querySelector('#dataset-list'); list.replaceChildren();",
+            "  panel.hidden = false; const list = panel.querySelector('#dataset-list'); list.replaceChildren();\n  if (!selected.length) {\n    panel.querySelector('#dataset-count').textContent = 'なし';\n    panel.querySelector('#dataset-frames').textContent = '—';\n    panel.querySelector('#dataset-images').textContent = '—';\n    panel.querySelector('#dataset-size').textContent = '—';\n    dsSetMessage('Bundle Adjustmentは完了しましたが、3DGS学習へ進める幾何学品質を満たす区間がありません。結果を良く見せるために低品質な区間を無理に使用せず、ここで安全に停止しました。', 'warning');\n    if (dsProgressText) dsProgressText.textContent = '全体最適化は完了しましたが、学習へ進める区間がありません';\n    window.__360gsDatasetResult = { ready:false, count:0, failedCount:0, selectionMode:'none', selectedSegmentIds:[] };\n    window.dispatchEvent(new CustomEvent('360gs:dataset-ready', { detail:window.__360gsDatasetResult }));\n    dsRunning = false;\n    return;\n  }")
+          replace_once('dataset.js', 'detail.good.reduce', 'selected.reduce')
+          replace_once('dataset.js', "`${detail.good.length}区間`", "`${selected.length}区間`")
+          replace_once('dataset.js', 'i < detail.good.length', 'i < selected.length')
+          replace_once('dataset.js', 'const item = detail.good[i]', 'const item = selected[i]')
+          replace_once('dataset.js',
+            '    window.__360gsDatasetResult = { ready:readyCount > 0, count:readyCount, failedCount };',
+            '    window.__360gsDatasetResult = { ready:readyCount > 0, count:readyCount, failedCount, selectionMode:selection.mode, selectedSegmentIds:selected.map((item) => item.source.segment.id) };')
+          replace_once('dataset.js',
+            '      dsSetMessage(`${readyCount}区間で透視画像の品質まで確認できました。プレビューを目視確認したうえで「学習データZIPを保存」を利用できます。${failedCount ? ` ${failedCount}区間は画像品質のため保留しました。` : \'\'}`, \'success\');',
+            '      const guardedNote = selection.mode === \'candidate\' ? \' BAの「良好」基準には未達ですが、厳格な安全条件を満たした最適化候補1区間のみを使用しています。\' : \'\';\n      dsSetMessage(`${readyCount}区間で透視画像の品質まで確認できました。${guardedNote} プレビューを目視確認したうえで「学習データZIPを保存」を利用できます。${failedCount ? ` ${failedCount}区間は画像品質のため保留しました。` : \'\'}`, \'success\');')
+
+          replace_once('training.js',
+            'function trLatest(){return window.__360gsBundleResult?.good?.[0]||null;}',
+            'function trLatest(){const bundle=window.__360gsBundleResult;if(!bundle)return null;const ids=window.__360gsDatasetResult?.selectedSegmentIds||[];if(ids.length){const selected=(bundle.results||[]).find(item=>ids.includes(item.source.segment.id));if(selected)return selected;}return bundle.good?.[0]||null;}')
+          replace_once('training.js',
+            "function trStartLatest(){const x=trLatest();if(!x){trMsg('全体最適化が良好な区間がまだありません。','warning');return;}trRun(x);}",
+            "function trStartLatest(){const x=trLatest();if(!x){trMsg('3DGS学習対象として承認された区間がありません。','warning');return;}trRun(x);}")
+          replace_once('training.js',
+            "trMsg('画像品質を確認できました。3DGS学習を自動開始します。','success');setTimeout(()=>{if(!trRunning)trStartLatest();},900);",
+            "const mode=window.__360gsDatasetResult?.selectionMode;trMsg(mode==='candidate'?'BA良好基準には未達ですが、厳格な安全条件と画像品質確認を通過した1区間で3DGS学習を開始します。':'画像品質を確認できました。3DGS学習を自動開始します。','success');setTimeout(()=>{if(!trRunning)trStartLatest();},900);")
+          replace_once('ba.js',
+            "    message.textContent = '安定化後に最適化候補として残る区間があります。次に再訪位置や長距離対応を追加し、3DGS入力前の軌跡をさらに確認します。';",
+            "    message.textContent = '「良好」基準には達していませんが最適化候補が残っています。トラック数、角度誤差、RMS、外れ観測率、事前除外率の追加安全条件を満たす候補があれば、最も安定した1区間だけ学習画像の品質確認へ進めます。満たさない場合は停止理由を表示します。';")
+
+          for path, old in [('ba.js', 'Prototype v0.2h'), ('dataset.js', 'Prototype v0.3a1'), ('training.js', 'Prototype v0.3c16')]:
+              replace_once(path, old, 'Prototype v0.3c17')
+
+          p = Path('video.html')
+          p.write_text(p.read_text(encoding='utf-8').replace('0.3c15', '0.3c17'), encoding='utf-8')
+          Path('BUILD_VERSION.txt').write_text('''360GS v0.3c17\nGuarded BA candidate continuation\nGood BA segments remain preferred\nWhen no good segment exists, exactly one candidate may continue only if it satisfies: >=18 tracks, >=55 angular inliers, median <=1.0 deg, RMS <=1.6 deg, outlier rate <=15%, prune rate <=75%, and no rollback\nIf no segment passes, the UI reports an explicit safe stop instead of silently ending\nDataset and Brush training use the exact same selected segment ID\nDirect ERP spherical geometry from v0.3c16 is retained unchanged\nBuild date: 2026-08-17\n''', encoding='utf-8')
+
+      - name: Validate syntax and behavior markers
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          for f in ['dataset.js','training.js','ba.js','spherical.js','pose.js','sfm.js','tracking.js']:
+              subprocess.run(['node','--check',f], check=True)
+          d=Path('dataset.js').read_text(encoding='utf-8')
+          t=Path('training.js').read_text(encoding='utf-8')
+          v=Path('video.html').read_text(encoding='utf-8')
+          b=Path('BUILD_VERSION.txt').read_text(encoding='utf-8')
+          assert 'dsIsGuardedCandidate' in d
+          assert 'inlierCount >= 55' in d
+          assert 'selectedSegmentIds' in d
+          assert 'selectionMode' in t
+          assert '0.3c17' in v
+          assert '360GS v0.3c17' in b
+          print('v0.3c17 guarded continuation validation passed')
+
+      - name: Commit generated v0.3c17 frontend
+        run: |
+          rm -f .github/workflows/apply-v03c17-candidate-fallback.yml
+          rm -f .github/workflows/apply-v03c17-candidate-fallback-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply v0.3c17 guarded BA candidate continuation"
+          git push origin HEAD:v03c17-guarded-ba-candidate
