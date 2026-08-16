@@ -47,17 +47,18 @@ jobs:
       - name: Verify c20 implementation markers
         run: |
           set -euo pipefail
-          grep -Fq "observations:[" geometry-seed.js
-          grep -Fq "third.observations" geometry-seed.js
-          grep -Fq "refinePosesFromTriangulatedPoints" training.js
-          grep -Fq "Post-triangulation pose refinement" training.js
-          grep -Fq "Post-triangulation spherical 2D-3D camera pose refinement" BUILD_VERSION.txt
-          grep -Fq "ratio90>25" training.js
-          grep -Fq "train-result-geometry" training.js
-          grep -Fq "Prototype v0.3c20" index.html
-          grep -Fq "Prototype v0.3c20" video.html
-          grep -Fq "training.js?v=0.3c20" video.html
-          grep -Fq "brush_js_bg.wasm?v=0.3c20" training.js
+          check(){ grep -Fq "$1" "$2" && echo "OK: $2 :: $1" || { echo "MISSING: $2 :: $1"; exit 1; }; }
+          check "const observations=[" geometry-seed.js
+          check "third.observations" geometry-seed.js
+          check "refinePosesFromTriangulatedPoints" training.js
+          check "Post-triangulation pose refinement" training.js
+          check "Post-triangulation spherical 2D-3D camera pose refinement" BUILD_VERSION.txt
+          check "ratio90>25" training.js
+          check "train-result-geometry" training.js
+          check "v0.3c20" index.html
+          check "v0.3c20" video.html
+          check "training.js?v=0.3c20" video.html
+          check "brush_js_bg.wasm?v=0.3c20" training.js
 
       - name: Synthetic robust spherical pose refinement test
         run: |
