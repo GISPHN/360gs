@@ -525,10 +525,10 @@ function trFitInterpretation(trainEval,holdout){
   const tv=trainEval&&Number.isFinite(trainEval.psnr)&&Number.isFinite(trainEval.ssim),hv=holdout&&Number.isFinite(holdout.psnr)&&Number.isFinite(holdout.ssim);
   if(!tv||!hv)return '学習画像と未学習画像の両方の評価値が揃っていません。';
   const gap=trainEval.psnr-holdout.psnr;
-  if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、現時点ではカメラ姿勢だけを主因とせず、BA/SfM seed・GPU内軽量growthを使用しても学習画像への適合が低いため、次は入力視点密度、カメラ幾何、解像度、SH degreeを個別に評価します。';
+  if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、幾何整合seedを使用しても不足が残っています。次は直接ERP rasterization、カメラ自己較正、入力視点密度を個別に評価します。';
   if(trainEval.psnr>=20&&trainEval.ssim>=.65&&(holdout.psnr<15||holdout.ssim<.45||gap>5))return '学習画像には適合できていますが未学習画像で大きく低下しています。カメラ姿勢・対応点・3D幾何の不整合を優先して改善します。';
   if(trainEval.psnr>=20&&holdout.psnr>=18&&trainEval.ssim>=.65&&holdout.ssim>=.60)return '学習画像・未学習画像とも一定の再現性があります。次はGaussian数、SH degree、軽量densificationを段階的に増やします。';
-  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c13では6面90°cubemapへ変更して360°投影範囲を改善しています。改善が限定的なら、次は直接ERP/球面カメラモデルとカメラ姿勢・3D幾何を優先して比較します。';
+  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c18ではランダム深度seedを廃止し、BA点とERP 2視点三角測量点だけに初期Gaussianを拘束しています。改善が限定的なら、次は直接ERP rasterizationとカメラ自己較正を優先して比較します。';
 }
 function trRenderFitEvaluation(res,trainEval,holdout,history){
   if(!res)return;
@@ -771,7 +771,7 @@ async function trRun(item){
       if('split-at-screen-size'in c)c['split-at-screen-size']=0;
       if('eval-every'in c)c['eval-every']=plan.evalEvery;
       if('sh-degree'in c)c['sh-degree']=1;
-      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} BA/SfM-informed seed Gaussians / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / 6-face 90deg cubemap / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
+      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} geometry-anchored seed Gaussians (${ds.sourceTracks} BA tracks + ${ds.stereoPoints} 2-view triangulated points / random-depth ${ds.randomDepthSeeds}) / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / 6-face 90deg cubemap / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
       return c;
     });
     trTraining=t;
@@ -852,14 +852,14 @@ async function trRun(item){
     ex.view=trRepresentativeView(item);trResultView=ex.view;
     res.hidden=false;
     const range=trBoundsSummary(ex.bounds);
-    res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB / 初期seed ${ds.seedCount.toLocaleString()}${range?` / ${range}`:''}`;
+    res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB / 幾何seed ${ds.seedCount.toLocaleString()}（BA ${ds.sourceTracks}点 + 2視点 ${ds.stereoPoints}点 / ランダム深度 ${ds.randomDepthSeeds}）${range?` / ${range}`:''}`;
     trRenderGaussianDiagnostics(res,ex.diagnostics);
     trRenderFitEvaluation(res,trLastTrainEval,trLastEval,trEvalHistory);
     res.querySelector('#train-download').onclick=()=>trDownload(ex.blob,`360gs_segment_${item.source.segment.id}.ply`);
     res.querySelector('#train-show').onclick=()=>trShow(ex.blob,ex.viewBounds||ex.bounds,ex.view).catch(e=>trMsg(`3D表示: ${e?.message||e}`,'warning'));
     trProgress(100,'3DGS生成が完了しました');
     trMsg('3DGS学習が完了しました。PLYとして保存するか、この画面で3D表示できます。','success');
-    window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,viewBounds:ex.viewBounds,diagnostics:ex.diagnostics,trainEval:trLastTrainEval,eval:trLastEval,evalHistory:[...trEvalHistory],view:ex.view,segmentId:item.source.segment.id};
+    window.__360gsTrainingResult={ready:true,blob:ex.blob,count:ex.count,bounds:ex.bounds,viewBounds:ex.viewBounds,diagnostics:ex.diagnostics,trainEval:trLastTrainEval,eval:trLastEval,evalHistory:[...trEvalHistory],view:ex.view,segmentId:item.source.segment.id,geometrySeed:{total:ds.seedCount,baTracks:ds.sourceTracks,twoViewPoints:ds.stereoPoints,randomDepthSeeds:ds.randomDepthSeeds,spacing:ds.seedSpacing,preflight:ds.geometryPreflight}};
     window.dispatchEvent(new CustomEvent('360gs:training-ready',{detail:{ready:true,count:ex.count,segmentId:item.source.segment.id}}));
   }catch(e){
     trProgress(0,'3DGS学習を継続できませんでした');
