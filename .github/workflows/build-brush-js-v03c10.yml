@@ -1,0 +1,125 @@
+name: Build Brush JS v0.3c10 train-fit diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - v03c10-train-fit-diagnostic
+    paths:
+      - '.github/workflows/build-brush-js-v03c10.yml'
+      - 'tools/patch_v03c10.py'
+
+concurrency:
+  group: brush-js-v03c10-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout compatibility-pinned Brush source
+        uses: actions/checkout@v4
+        with:
+          repository: ArthurBrussee/brush
+          ref: 3b80985709e2ec04fd6c8622a40e36473647a8e0
+          path: _brush
+          lfs: false
+
+      - name: Restore patch-compatible frontend baseline
+        run: |
+          git checkout c2db1e79967705de7212390933056909d7cb1e1d -- training.js video.html index.html README.md
+
+      - name: Apply v0.3b9 diagnostic base patches
+        run: python tools/patch_v03b9.py
+
+      - name: Apply v0.3c0 browser safety patches
+        run: python tools/patch_v03c0.py
+
+      - name: Restore v0.3c5 frontend for reproducible c6 patch
+        run: |
+          git checkout d185cab9ef18d409689cf51f2395bfec4389dbde -- training.js video.html index.html README.md BUILD_VERSION.txt
+
+      - name: Apply v0.3c6 train-fit evaluation patch
+        run: python tools/patch_v03c6.py
+
+      - name: Apply v0.3c7 source-position and hybrid-seed patch
+        run: python tools/patch_v03c7.py
+
+      - name: Apply v0.3c8 adaptive long-horizon patch
+        run: python tools/patch_v03c8.py
+
+      - name: Apply v0.3c9 GPU-safe growth patch
+        run: python tools/patch_v03c9.py
+
+      - name: Apply v0.3c10 train-fit diagnostic patch
+        run: python tools/patch_v03c10.py
+
+      - name: Verify v0.3c10 markers
+        run: |
+          grep -q 'refine_browser_growth_only' _brush/crates/brush-train/src/train.rs
+          grep -q 'late_train_fit' _brush/crates/brush-process/src/train_stream.rs
+          grep -q 'training_steps.saturating_mul(2) / 3' _brush/crates/brush-process/src/train_stream.rs
+          grep -q 'trLastTrainEval.iter<c.iter' training.js
+          grep -q 'train-fit診断' training.js
+          grep -q 'Prototype v0.3c10' training.js
+          grep -q 'Prototype v0.3c10' index.html
+          grep -q 'Prototype v0.3c10' video.html
+          grep -q 'brush_js_bg.wasm?v=0.3c10' training.js
+          grep -q 'wasm-opt = false' _brush/apps/brush-js/Cargo.toml
+          python -m py_compile tools/patch_v03c10.py
+
+      - name: Validate JavaScript
+        run: node --check training.js
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Build brush-js
+        run: |
+          rm -rf vendor/brush-js
+          mkdir -p vendor/brush-js
+          wasm-pack build _brush/apps/brush-js \
+            --release \
+            --target web \
+            --out-dir "$GITHUB_WORKSPACE/vendor/brush-js" \
+            --out-name brush_js
+          rm -f vendor/brush-js/.gitignore
+          printf '%s\n' \
+            'Brush JavaScript/WebAssembly runtime.' \
+            'Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.' \
+            '360GS extension: v0.3c10 late train-view fit diagnostic before adaptive stopping.' \
+            'Optimization and Gaussian growth behavior are unchanged from v0.3c9.' \
+            'The first late train-fit metric is aligned with the minimum adaptive-stop boundary for each device plan.' \
+            'Adaptive stopping waits until training-view and held-out PSNR/SSIM are both available at the same boundary.' \
+            'SH degree remains 0 so the next quality change can be selected from evidence rather than confounded changes.' \
+            'wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.' \
+            'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
+            > vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated runtime and UI
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/brush-js training.js index.html video.html README.md BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c10 output is unchanged."
+          else
+            git commit -m "Add v0.3c10 train-fit diagnostic runtime"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi

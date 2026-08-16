@@ -1,8 +1,9 @@
 Brush JavaScript/WebAssembly runtime.
 Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS extension: v0.3c9 source-position holdout, BA/SfM hybrid seeds, GPU-only bounded Gaussian growth, and adaptive convergence stopping.
-The browser growth path performs no training-time pruning, no argwhere/readback, and no bounds recomputation.
-Growth remains device-capped at 36k/50k/60k, scheduled approximately every 1600 iterations with 5-8% additions, and stops at growth_stop_iter.
-SH degree remains 0 for controlled comparison with c7/c8.
+360GS extension: v0.3c10 late train-view fit diagnostic before adaptive stopping.
+Optimization and Gaussian growth behavior are unchanged from v0.3c9.
+The first late train-fit metric is aligned with the minimum adaptive-stop boundary for each device plan.
+Adaptive stopping waits until training-view and held-out PSNR/SSIM are both available at the same boundary.
+SH degree remains 0 so the next quality change can be selected from evidence rather than confounded changes.
 wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
