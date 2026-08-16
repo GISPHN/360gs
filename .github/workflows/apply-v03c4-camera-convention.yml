@@ -1,0 +1,41 @@
+name: Apply v0.3c4 camera convention correction
+
+on:
+  push:
+    paths:
+      - '.github/scripts/apply_v03c4_camera_convention.py'
+      - '.github/workflows/apply-v03c4-camera-convention.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply camera convention correction
+        run: python .github/scripts/apply_v03c4_camera_convention.py
+      - name: Validate JavaScript
+        run: node --check training.js
+      - name: Verify correction markers
+        run: |
+          grep -q "trReflectYMat" training.js
+          grep -q "Camera convention corrected" training.js
+          grep -q "Prototype v0.3c4" video.html
+      - name: Commit corrected training export
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js video.html index.html BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Fix BA to Brush camera coordinate convention v0.3c4"
+          git pull --rebase origin main
+          git push origin HEAD:main
