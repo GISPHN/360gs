@@ -1,3 +1,3 @@
-360GS v0.3c3
-Gaussian scale / opacity diagnostics for reconstruction quality
+360GS v0.3c4
+BA/SfM to COLMAP/Brush camera-coordinate convention correction
 Build date: 2026-08-16
