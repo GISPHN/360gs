@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/build-brush-js-v03c21.yml'
       - 'tools/patch_v03c21.py'
+      - 'tools/patch_v03c21_resolution.py'
 
 concurrency:
   group: brush-js-v03c21-${{ github.ref }}
@@ -33,10 +34,6 @@ jobs:
           path: _brush
           lfs: false
 
-      # Reconstruct the exact browser-safe Brush source that produced the
-      # current c13-c20 WASM. Historical scripts also patch the old frontend,
-      # so restore the c20 frontend from the triggering commit immediately
-      # afterwards and apply only the new c21 frontend delta.
       - name: Reconstruct current browser-safe Brush base
         run: |
           git checkout c2db1e79967705de7212390933056909d7cb1e1d -- training.js video.html index.html README.md
@@ -54,11 +51,13 @@ jobs:
           git checkout "$GITHUB_SHA" -- training.js video.html index.html README.md BUILD_VERSION.txt
 
       - name: Apply v0.3c21 direct ERP patch
-        run: python tools/patch_v03c21.py
+        run: |
+          python tools/patch_v03c21.py
+          python tools/patch_v03c21_resolution.py
 
       - name: Validate frontend and patch syntax
         run: |
-          python -m py_compile tools/patch_v03c21.py
+          python -m py_compile tools/patch_v03c21.py tools/patch_v03c21_resolution.py
           node --check training.js
           node --check geometry-seed.js
           node --check depth-prior.js
@@ -79,11 +78,13 @@ jobs:
           check "camera_model:'EQUIRECTANGULAR'" training.js
           check 'trErpWeightMask' training.js
           check 'direct ERP dual-seam' training.js
+          check 'erpW=Math.min(2048,Math.max(1024,size*2))' training.js
+          check "res:Math.min(size,1536),label:'高品質・direct ERP" training.js
           check 'Prototype v0.3c21' index.html
           check 'Prototype v0.3c21' video.html
           check 'brush_js_bg.wasm?v=0.3c21' training.js
 
-      - name: Analytic ERP projection Jacobian test
+      - name: Analytic ERP projection differential tests
         run: |
           python - <<'PY'
           import math, random
@@ -96,22 +97,58 @@ jobs:
               fx=w/(2*math.pi); fy=h/math.pi
               return ((fx*z/r2,0,-fx*x/r2),
                       (-fy*x*y/(r*s),fy*r/s,-fy*z*y/(r*s)))
-          random.seed(21)
-          worst=0.0
+          def hess(p,w=1024,h=512):
+              x,y,z=p; s=x*x+y*y+z*z; r2=x*x+z*z; r=math.sqrt(r2)
+              fx=w/(2*math.pi); fy=h/math.pi
+              ir=1/r; ir2=1/r2; ir22=ir2*ir2; ir3=ir*ir2; is2=1/(s*s)
+              hu=(( -2*fx*x*z*ir22,0,fx*(x*x-z*z)*ir22),
+                  (0,0,0),
+                  (fx*(x*x-z*z)*ir22,0,2*fx*x*z*ir22))
+              common=3*r2+y*y
+              xx=fy*y*(2*x*x*r2+x*x*s-r2*s)*ir3*is2
+              xy=fy*x*(y*y-r2)*ir*is2
+              xz=fy*x*y*z*common*ir3*is2
+              yy=-2*fy*y*r*is2
+              yz=fy*z*(y*y-r2)*ir*is2
+              zz=fy*y*(2*z*z*r2+z*z*s-r2*s)*ir3*is2
+              hv=((xx,xy,xz),(xy,yy,yz),(xz,yz,zz))
+              return hu,hv
+          random.seed(21); worst_j=0; worst_h=0
           for _ in range(100):
               p=[random.uniform(-3,3),random.uniform(-2,2),random.uniform(-3,3)]
               if p[0]*p[0]+p[2]*p[2] < .2: p[0]+=1
-              J=jac(p); eps=1e-5
+              J=jac(p); H=hess(p); eps=1e-5
               for k in range(3):
                   a=p[:]; b=p[:]; a[k]+=eps; b[k]-=eps
                   pa,pb=project(a),project(b)
-                  # Do not sample across longitude seam.
                   if abs(pa[0]-pb[0])>100: continue
-                  for r in range(2):
-                      fd=(pa[r]-pb[r])/(2*eps)
-                      worst=max(worst,abs(fd-J[r][k]))
-          print('ERP Jacobian max abs error',worst)
-          assert worst < 2e-4
+                  Ja,Jb=jac(a),jac(b)
+                  for rr in range(2):
+                      fd=(pa[rr]-pb[rr])/(2*eps)
+                      worst_j=max(worst_j,abs(fd-J[rr][k]))
+                      for cc in range(3):
+                          fd2=(Ja[rr][cc]-Jb[rr][cc])/(2*eps)
+                          worst_h=max(worst_h,abs(fd2-H[rr][cc][k]))
+          print('ERP Jacobian max abs error',worst_j)
+          print('ERP Hessian max abs error',worst_h)
+          assert worst_j < 2e-4 and worst_h < 2e-3
+          PY
+
+      - name: Verify ERP camera convention and complementary seam rotation
+        run: |
+          python - <<'PY'
+          import math
+          # Identity source pose -> identity Brush camera after Y reflection on
+          # both source/world conventions; 180 roll rotates local forward to back.
+          def yaw(a):
+              c,s=math.cos(a),math.sin(a)
+              return [[c,0,s],[0,1,0],[-s,0,c]]
+          R0=yaw(0); R1=yaw(math.pi)
+          f0=[R0[i][2] for i in range(3)]; f1=[R1[i][2] for i in range(3)]
+          assert abs(f0[2]-1)<1e-9 and abs(f1[2]+1)<1e-9
+          # A half-width roll maps the old ERP seam/back direction to the new centre.
+          assert sum(a*b for a,b in zip(f0,f1)) < -0.999999
+          print('ERP dual-seam camera convention test passed')
           PY
 
       - name: Install Rust
@@ -124,8 +161,7 @@ jobs:
         uses: taiki-e/install-action@wasm-pack
 
       - name: Check Brush direct ERP Rust
-        run: |
-          cargo check --manifest-path _brush/Cargo.toml -p brush-render -p brush-dataset
+        run: cargo check --manifest-path _brush/Cargo.toml -p brush-render -p brush-dataset
 
       - name: Build brush-js WebAssembly
         run: |
@@ -145,6 +181,7 @@ jobs:
             'Radial range is used for full-sphere depth ordering.' \
             'Training uses two complementary direct ERP seam variants per original source position, not cubemap faces.' \
             'Spherical-area and seam weights are supplied through Brush mask alpha.' \
+            'Direct ERP long-edge training cap is device-adaptive up to 1536 px to retain angular detail.' \
             'c20 spherical geometry, post-triangulation pose refinement, SH1 and browser-safe GPU-only growth are retained.' \
             'wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.' \
             'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
