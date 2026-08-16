@@ -1,9 +1,15 @@
 const trVideo = document.querySelector('#source-video');
 const trPageProgress = document.querySelector('#progress-text');
 const TR_BRUSH = './vendor/brush-js/brush_js.js';
-const TR_FOV = 100;
-const TR_YAWS = [0, 90, 180, 270];
-const TR_NAMES = ['front', 'right', 'back', 'left'];
+const TR_FOV = 90;
+const TR_FACES = [
+  {name:'front',yaw:0,pitch:0},
+  {name:'right',yaw:90,pitch:0},
+  {name:'back',yaw:180,pitch:0},
+  {name:'left',yaw:270,pitch:0},
+  {name:'up',yaw:0,pitch:-90},
+  {name:'down',yaw:0,pitch:90},
+];
 const TR_MAX_FRAMES = 12;
 const TR_BATCH = 5;
 
@@ -62,6 +68,8 @@ function trMul(a,b){const o=new Array(9).fill(0);for(let r=0;r<3;r++)for(let c=0
 function trT(m){return[m[0],m[3],m[6],m[1],m[4],m[7],m[2],m[5],m[8]];}
 function trMv(m,v){return[m[0]*v[0]+m[1]*v[1]+m[2]*v[2],m[3]*v[0]+m[4]*v[1]+m[5]*v[2],m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];}
 function trYaw(d){const a=d*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return[c,0,s,0,1,0,-s,0,c];}
+function trPitch(d){const a=d*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return[1,0,0,0,c,-s,0,s,c];}
+function trFaceRot(face){return trMul(trYaw(face.yaw),trPitch(face.pitch));}
 function trReflectY3(v){return[v[0],-v[1],v[2]];}
 function trReflectYMat(m){return[m[0],-m[1],m[2],-m[3],m[4],-m[5],m[6],-m[7],m[8]];}
 function trQuat(R){const t=R[0]+R[4]+R[8];let w,x,y,z;if(t>0){const s=Math.sqrt(t+1)*2;w=.25*s;x=(R[7]-R[5])/s;y=(R[2]-R[6])/s;z=(R[3]-R[1])/s;}else if(R[0]>R[4]&&R[0]>R[8]){const s=Math.sqrt(1+R[0]-R[4]-R[8])*2;w=(R[7]-R[5])/s;x=.25*s;y=(R[1]+R[3])/s;z=(R[2]+R[6])/s;}else if(R[4]>R[8]){const s=Math.sqrt(1+R[4]-R[0]-R[8])*2;w=(R[2]-R[6])/s;x=(R[1]+R[3])/s;y=.25*s;z=(R[5]+R[7])/s;}else{const s=Math.sqrt(1+R[8]-R[0]-R[4])*2;w=(R[3]-R[1])/s;x=(R[2]+R[6])/s;y=(R[5]+R[7])/s;z=.25*s;}const n=Math.hypot(w,x,y,z)||1;return[w/n,x/n,y/n,z/n];}
@@ -75,7 +83,7 @@ function trRenderer(size) {
   if (!gl) throw new Error('このブラウザでは学習画像の透視変換に必要なWebGLを利用できません。');
 
   const vs = `attribute vec2 aPos; varying vec2 vUv; void main(){vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0);}`;
-  const fsHigh = `precision highp float; varying vec2 vUv; uniform sampler2D uPano; uniform float uYaw; uniform float uHalfFov; const float PI=3.141592653589793; void main(){vec3 local=normalize(vec3((vUv.x*2.0-1.0)*uHalfFov,(vUv.y*2.0-1.0)*uHalfFov,1.0));float c=cos(uYaw),s=sin(uYaw);vec3 d=vec3(local.x*c+local.z*s,local.y,-local.x*s+local.z*c);float lon=atan(d.x,d.z);float lat=asin(clamp(d.y,-1.0,1.0));float u=clamp(lon/(2.0*PI)+0.5,0.0,1.0);float v=clamp(lat/PI+0.5,0.0,1.0);gl_FragColor=texture2D(uPano,vec2(u,v));}`;
+  const fsHigh = `precision highp float; varying vec2 vUv; uniform sampler2D uPano; uniform float uYaw; uniform float uPitch; uniform float uHalfFov; const float PI=3.141592653589793; void main(){vec3 local=normalize(vec3((vUv.x*2.0-1.0)*uHalfFov,(vUv.y*2.0-1.0)*uHalfFov,1.0));float cp=cos(uPitch),sp=sin(uPitch);vec3 pitched=vec3(local.x,local.y*cp-local.z*sp,local.y*sp+local.z*cp);float c=cos(uYaw),s=sin(uYaw);vec3 d=vec3(pitched.x*c+pitched.z*s,pitched.y,-pitched.x*s+pitched.z*c);float lon=atan(d.x,d.z);float lat=asin(clamp(d.y,-1.0,1.0));float u=clamp(lon/(2.0*PI)+0.5,0.0,1.0);float v=clamp(lat/PI+0.5,0.0,1.0);gl_FragColor=texture2D(uPano,vec2(u,v));}`;
   const fsMedium = fsHigh.replace('precision highp float;', 'precision mediump float;');
 
   const compile = (type, src, label) => {
@@ -126,17 +134,19 @@ function trRenderer(size) {
   gl.uniform1i(gl.getUniformLocation(program, 'uPano'), 0);
   gl.uniform1f(gl.getUniformLocation(program, 'uHalfFov'), Math.tan(TR_FOV * Math.PI / 360));
   const yawLoc = gl.getUniformLocation(program, 'uYaw');
+  const pitchLoc = gl.getUniformLocation(program, 'uPitch');
   gl.viewport(0, 0, size, size);
 
   return {
     canvas,
-    render(video, yawDeg) {
+    render(video, yawDeg, pitchDeg=0) {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
       const uploadError = gl.getError();
       if (uploadError !== gl.NO_ERROR) throw new Error(`動画テクスチャをWebGLへ転送できませんでした (${uploadError})。`);
       gl.uniform1f(yawLoc, yawDeg * Math.PI / 180);
+      gl.uniform1f(pitchLoc, pitchDeg * Math.PI / 180);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       gl.finish();
       const renderError = gl.getError();
@@ -192,9 +202,9 @@ function trInitPly(tracks,poses,target){
       points.push([r*s*Math.cos(a),r*z,r*s*Math.sin(a)]);
       continue;
     }
-    const pose=cams[Math.floor(rng()*cams.length)],yaw=TR_YAWS[Math.floor(rng()*TR_YAWS.length)];
+    const pose=cams[Math.floor(rng()*cams.length)],face=TR_FACES[Math.floor(rng()*TR_FACES.length)];
     const dx=(rng()*2-1)*half,dy=(rng()*2-1)*half,local=[dx,dy,1];
-    const R=trMul(pose.cameraToWorld,trYaw(yaw)),v=trMv(R,local),n=Math.hypot(v[0],v[1],v[2])||1;
+    const R=trMul(pose.cameraToWorld,trFaceRot(face)),v=trMv(R,local),n=Math.hypot(v[0],v[1],v[2])||1;
     const depth=Math.exp(Math.log(near)+rng()*(Math.log(far)-Math.log(near)));
     const world=[pose.position[0]+v[0]/n*depth,pose.position[1]+v[1]/n*depth,pose.position[2]+v[2]/n*depth];
     points.push(trReflectY3(world));
@@ -222,25 +232,26 @@ async function trBuildDataset(item,id){
     if(id!==trRunId)throw new Error('処理が更新されました。');
     const fi=sel[o],pose=item.optimization.poses[fi],tm=item.source.frames[fi].time;
     await trSeek(tm);
-    for(let k=0;k<4;k++){
-      rr.render(trVideo,TR_YAWS[k]);
-      const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${TR_NAMES[k]}.jpg`;
+    for(let k=0;k<TR_FACES.length;k++){
+      const face=TR_FACES[k];
+      rr.render(trVideo,face.yaw,face.pitch);
+      const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${face.name}.jpg`;
       await trWrite(dir,`images/${name}`,blob);
-      const Rcw=trReflectYMat(trMul(pose.cameraToWorld,trYaw(TR_YAWS[k]))),C=trReflectY3(pose.position),R=trT(Rcw),pv=trMv(R,C),q=trQuat(R);
+      const Rcw=trReflectYMat(trMul(pose.cameraToWorld,trFaceRot(face))),C=trReflectY3(pose.position),R=trT(Rcw),pv=trMv(R,C),q=trQuat(R);
       lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');
-      iid++;made++;trProgress(2+8*made/(sel.length*4),`Brush用データを準備しています ${made}/${sel.length*4}`);
+      iid++;made++;trProgress(2+8*made/(sel.length*TR_FACES.length),`Brush用6面cubemapを準備しています ${made}/${sel.length*TR_FACES.length}`);
       await new Promise(r=>setTimeout(r,0));
     }
   }
   await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');
-  return{dir,views:sel.length*4,size,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,seedScale:seed.sceneScale};
+  return{dir,views:sel.length*TR_FACES.length,size,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,seedScale:seed.sceneScale};
 }
 
 function trPlan(size){
   const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4,seed=trSeedBudget();
-  if(m>=12&&c>=8)return{iters:7200,minIters:4800,max:Math.max(60000,seed),res:Math.min(size,512),seed,label:'高品質・Gaussian密度比較',refineEvery:1600,growthStop:3600,growthFraction:.24,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  if(m>=8&&c>=6)return{iters:6400,minIters:4800,max:Math.max(50000,seed),res:Math.min(size,512),seed,label:'品質優先・Gaussian密度比較',refineEvery:1600,growthStop:3600,growthFraction:.21,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  return{iters:4800,minIters:3600,max:Math.max(36000,seed),res:Math.min(size,384),seed,label:'省メモリ・Gaussian密度比較',refineEvery:1600,growthStop:2000,growthFraction:.15,evalEvery:600,plateauDb:.12,plateauSsim:.006};
+  if(m>=12&&c>=8)return{iters:7200,minIters:4800,max:Math.max(60000,seed),res:Math.min(size,512),seed,label:'高品質・6面cubemap投影比較',refineEvery:1600,growthStop:3600,growthFraction:.24,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  if(m>=8&&c>=6)return{iters:6400,minIters:4800,max:Math.max(50000,seed),res:Math.min(size,512),seed,label:'品質優先・6面cubemap投影比較',refineEvery:1600,growthStop:3600,growthFraction:.21,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  return{iters:4800,minIters:3600,max:Math.max(36000,seed),res:Math.min(size,384),seed,label:'省メモリ・6面cubemap投影比較',refineEvery:1600,growthStop:2000,growthFraction:.15,evalEvery:600,plateauDb:.12,plateauSsim:.006};
 }
 function trShouldEarlyStop(plan){
   const h=trEvalHistory.filter(x=>Number.isFinite(x?.psnr)&&Number.isFinite(x?.ssim)&&Number.isFinite(x?.iter));
@@ -259,7 +270,7 @@ function trShouldEarlyStop(plan){
   }
   return null;
 }
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c12`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c12', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c13`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c13', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -606,7 +617,7 @@ async function trRun(item){
       if('split-at-screen-size'in c)c['split-at-screen-size']=0;
       if('eval-every'in c)c['eval-every']=plan.evalEvery;
       if('sh-degree'in c)c['sh-degree']=1;
-      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} BA/SfM-informed seed Gaussians / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
+      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} BA/SfM-informed seed Gaussians / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / 6-face 90deg cubemap / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
       return c;
     });
     trTraining=t;
@@ -710,5 +721,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c12');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c13');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';

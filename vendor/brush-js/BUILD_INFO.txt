@@ -1,7 +1,8 @@
 Brush JavaScript/WebAssembly runtime.
-Compiled runtime reused from the validated v0.3c10 compatibility build at ArthurBrussee/brush commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS v0.3c12 is a frontend/training-configuration experiment testing Gaussian density after the negligible SH1 result.
-Only growth-select-fraction changes from v0.3c11: 0.08/0.07/0.05 -> 0.24/0.21/0.15 by device tier.
-SH degree 1, views, source-position holdout, BA/SfM hybrid seeds, growth timing, resolution, optimizer horizon, and adaptive stopping remain unchanged.
-The existing 36k/50k/60k device safety caps remain active.
+Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
+360GS extension: v0.3c13 six-face 90-degree cubemap projection experiment.
+Source-position holdout and train-fit diagnostics group six cubemap faces per original 360 source frame.
+SH degree 1 and the v0.3c12 browser-safe Gaussian density schedule are retained.
+The cubemap is a compatibility experiment before a possible direct equirectangular WebGPU rasterizer.
+wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
