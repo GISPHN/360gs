@@ -145,13 +145,104 @@ function trRenderer(size) {
   };
 }
 function trJpeg(c){return new Promise((r,j)=>c.toBlob(b=>b?r(b):j(new Error('学習画像を書き出せません。')),'image/jpeg',.9));}
-function trInitPly(tracks){const a=(tracks||[]).filter(t=>t.position?.every(Number.isFinite)).slice(0,5000);const h=`ply\nformat ascii 1.0\nelement vertex ${a.length}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;return new Blob([h,a.map(t=>`${t.position[0]} ${t.position[1]} ${t.position[2]} 160 160 160`).join('\n'),'\n'],{type:'application/octet-stream'});}
+function trSeedBudget(){
+  const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;
+  if(m>=12&&c>=8)return 30000;
+  if(m>=8&&c>=6)return 24000;
+  return 16000;
+}
+function trSeedRng(seed){let x=(seed>>>0)||0x6d2b79f5;return()=>{x^=x<<13;x^=x>>>17;x^=x<<5;return(x>>>0)/4294967296;};}
+function trSeedQuantile(a,q){if(!a.length)return NaN;const b=[...a].sort((x,y)=>x-y),p=(b.length-1)*q,i=Math.floor(p),t=p-i;return b[i]*(1-t)+b[Math.min(i+1,b.length-1)]*t;}
+function trSeedScale(tracks,poses){
+  const validTracks=(tracks||[]).filter(t=>t.position?.every(Number.isFinite));
+  const validPoses=(poses||[]).filter(p=>p.position?.every(Number.isFinite));
+  const d=[];
+  for(const t of validTracks){
+    let best=Infinity;
+    for(const p of validPoses)best=Math.min(best,Math.hypot(t.position[0]-p.position[0],t.position[1]-p.position[1],t.position[2]-p.position[2]));
+    if(Number.isFinite(best)&&best>1e-5)d.push(best);
+  }
+  const q=trSeedQuantile(d,.8);
+  if(Number.isFinite(q)&&q>1e-4)return Math.max(.1,q*1.25);
+  const nn=[];
+  for(let i=0;i<validPoses.length;i++){
+    let best=Infinity;
+    for(let j=0;j<validPoses.length;j++)if(i!==j)best=Math.min(best,Math.hypot(validPoses[i].position[0]-validPoses[j].position[0],validPoses[i].position[1]-validPoses[j].position[1],validPoses[i].position[2]-validPoses[j].position[2]));
+    if(Number.isFinite(best)&&best>1e-6)nn.push(best);
+  }
+  const base=trSeedQuantile(nn,.5);
+  return Number.isFinite(base)?Math.max(.1,base*3):1;
+}
+function trInitPly(tracks,poses,target){
+  const src=(tracks||[]).filter(t=>t.position?.every(Number.isFinite));
+  const cams=(poses||[]).filter(p=>p.position?.every(Number.isFinite)&&Array.isArray(p.cameraToWorld)&&p.cameraToWorld.length===9);
+  const count=Math.max(10000,target||trSeedBudget()),rng=trSeedRng((src.length*2654435761+cams.length*40503+count)>>>0);
+  const sceneScale=trSeedScale(src,cams),points=[];
+  const anchorBudget=src.length?Math.min(count,Math.max(src.length,Math.round(count*.35))):0;
+  for(let i=0;i<anchorBudget;i++){
+    const t=src[i%src.length],p=trReflectY3(t.position),exact=i<src.length;
+    const j=exact?0:sceneScale*(.0015+.004*rng());
+    const rx=(rng()*2-1)*j,ry=(rng()*2-1)*j,rz=(rng()*2-1)*j;
+    points.push([p[0]+rx,p[1]+ry,p[2]+rz]);
+  }
+  const half=Math.tan(TR_FOV*Math.PI/360),near=Math.max(sceneScale*.04,1e-4),far=Math.max(near*2,sceneScale);
+  while(points.length<count){
+    if(!cams.length){
+      const r=sceneScale*(.15+.85*Math.cbrt(rng())),z=rng()*2-1,a=rng()*Math.PI*2,s=Math.sqrt(Math.max(0,1-z*z));
+      points.push([r*s*Math.cos(a),r*z,r*s*Math.sin(a)]);
+      continue;
+    }
+    const pose=cams[Math.floor(rng()*cams.length)],yaw=TR_YAWS[Math.floor(rng()*TR_YAWS.length)];
+    const dx=(rng()*2-1)*half,dy=(rng()*2-1)*half,local=[dx,dy,1];
+    const R=trMul(pose.cameraToWorld,trYaw(yaw)),v=trMv(R,local),n=Math.hypot(v[0],v[1],v[2])||1;
+    const depth=Math.exp(Math.log(near)+rng()*(Math.log(far)-Math.log(near)));
+    const world=[pose.position[0]+v[0]/n*depth,pose.position[1]+v[1]/n*depth,pose.position[2]+v[2]/n*depth];
+    points.push(trReflectY3(world));
+  }
+  const h=`ply\nformat ascii 1.0\nelement vertex ${points.length}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;
+  const body=points.map(v=>`${v[0]} ${v[1]} ${v[2]} 150 150 150`).join('\n');
+  return{blob:new Blob([h,body,'\n'],{type:'application/octet-stream'}),count:points.length,anchors:anchorBudget,sourceTracks:src.length,sceneScale};
+}
+
 async function trDir(p,n){return p.getDirectoryHandle(n,{create:true});}
 async function trWrite(root,path,data){const q=path.split('/');let d=root;for(let i=0;i<q.length-1;i++)d=await trDir(d,q[i]);const f=await d.getFileHandle(q.at(-1),{create:true}),w=await f.createWritable();await w.write(data);await w.close();}
-async function trBuildDataset(item,id){if(!navigator.storage?.getDirectory)throw new Error('ブラウザ内の一時学習領域を利用できません。Chrome / Edgeを使用してください。');const root=await navigator.storage.getDirectory(),base=await trDir(root,'360gs-brush'),dn=`segment-${item.source.segment.id}`;try{await base.removeEntry(dn,{recursive:true});}catch{}const dir=await trDir(base,dn),sel=trSelect(Math.min(item.optimization.poses.length,item.source.frames.length));const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,rr=trRenderer(size),focal=(size/2)/Math.tan(TR_FOV*Math.PI/360);await trWrite(dir,'sparse/0/cameras.txt',`# CAMERA_ID MODEL WIDTH HEIGHT PARAMS\n1 PINHOLE ${size} ${size} ${focal} ${focal} ${size/2} ${size/2}\n`);await trWrite(dir,'sparse/0/points3D.txt','# Empty points; Brush random initialization is used for browser training.\n');const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;for(let o=0;o<sel.length;o++){if(id!==trRunId)throw new Error('処理が更新されました。');const fi=sel[o],pose=item.optimization.poses[fi],tm=item.source.frames[fi].time;await trSeek(tm);for(let k=0;k<4;k++){rr.render(trVideo,TR_YAWS[k]);const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${TR_NAMES[k]}.jpg`;await trWrite(dir,`images/${name}`,blob);const Rcw=trReflectYMat(trMul(pose.cameraToWorld,trYaw(TR_YAWS[k]))),C=trReflectY3(pose.position),R=trT(Rcw),pv=trMv(R,C),q=trQuat(R);lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');iid++;made++;trProgress(2+8*made/(sel.length*4),`Brush用データを準備しています ${made}/${sel.length*4}`);await new Promise(r=>setTimeout(r,0));}}await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');return{dir,views:sel.length*4,size};}
+async function trBuildDataset(item,id){
+  if(!navigator.storage?.getDirectory)throw new Error('ブラウザ内の一時学習領域を利用できません。Chrome / Edgeを使用してください。');
+  const root=await navigator.storage.getDirectory(),base=await trDir(root,'360gs-brush'),dn=`segment-${item.source.segment.id}`;
+  try{await base.removeEntry(dn,{recursive:true});}catch{}
+  const dir=await trDir(base,dn),sel=trSelect(Math.min(item.optimization.poses.length,item.source.frames.length));
+  const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,rr=trRenderer(size),focal=(size/2)/Math.tan(TR_FOV*Math.PI/360);
+  await trWrite(dir,'sparse/0/cameras.txt',`# CAMERA_ID MODEL WIDTH HEIGHT PARAMS\n1 PINHOLE ${size} ${size} ${focal} ${focal} ${size/2} ${size/2}\n`);
+  await trWrite(dir,'sparse/0/points3D.txt','# 360GS uses root init.ply for BA/SfM-informed browser initialization.\n');
+  const selectedPoses=sel.map(fi=>item.optimization.poses[fi]).filter(Boolean);
+  const seed=trInitPly(item.optimization.tracks||[],selectedPoses,trSeedBudget());
+  await trWrite(dir,'init.ply',seed.blob);
+  const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;
+  for(let o=0;o<sel.length;o++){
+    if(id!==trRunId)throw new Error('処理が更新されました。');
+    const fi=sel[o],pose=item.optimization.poses[fi],tm=item.source.frames[fi].time;
+    await trSeek(tm);
+    for(let k=0;k<4;k++){
+      rr.render(trVideo,TR_YAWS[k]);
+      const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${TR_NAMES[k]}.jpg`;
+      await trWrite(dir,`images/${name}`,blob);
+      const Rcw=trReflectYMat(trMul(pose.cameraToWorld,trYaw(TR_YAWS[k]))),C=trReflectY3(pose.position),R=trT(Rcw),pv=trMv(R,C),q=trQuat(R);
+      lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');
+      iid++;made++;trProgress(2+8*made/(sel.length*4),`Brush用データを準備しています ${made}/${sel.length*4}`);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');
+  return{dir,views:sel.length*4,size,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,seedScale:seed.sceneScale};
+}
 
-function trPlan(size){const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;if(m>=12&&c>=8)return{iters:2000,max:150000,res:Math.min(size,512),label:'互換優先'};if(m>=8&&c>=6)return{iters:1600,max:120000,res:Math.min(size,512),label:'互換優先'};return{iters:1200,max:80000,res:Math.min(size,384),label:'省メモリ'};}
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c4`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c6', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
+function trPlan(size){
+  const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4,seed=trSeedBudget();
+  if(m>=12&&c>=8)return{iters:3200,max:Math.max(60000,seed),res:Math.min(size,512),seed,label:'品質優先'};
+  if(m>=8&&c>=6)return{iters:2800,max:Math.max(50000,seed),res:Math.min(size,512),seed,label:'品質優先'};
+  return{iters:2200,max:Math.max(32000,seed),res:Math.min(size,384),seed,label:'省メモリ品質'};
+}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c4`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c7', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -322,7 +413,7 @@ function trGaussianDiagnostics(t,o,n,bounds){
   d.rel90=d.scale90/radius;d.rel99=d.scale99/radius;
   if(d.rel90>.12||d.rel99>.35)d.verdict='大きなGaussianが多く、ぼけの主因になっている可能性があります。';
   else if(d.opacity50<.04)d.verdict='Gaussianの透明度が低く、復元が薄くなっている可能性があります。';
-  else d.verdict='Gaussian scaleの極端な膨張は目立ちません。固定10,000 Gaussian・densificationなし・SH degree 0による表現力不足が主因候補です。';
+  else d.verdict='Gaussian scaleの極端な膨張は目立ちません。BA/SfM情報で増量した固定seed Gaussian・densificationなし・SH degree 0でなお表現力または最適化が不足している可能性を確認します。';
   return d;
 }
 function trRenderGaussianDiagnostics(res,d){
@@ -336,7 +427,7 @@ function trFitInterpretation(trainEval,holdout){
   const tv=trainEval&&Number.isFinite(trainEval.psnr)&&Number.isFinite(trainEval.ssim),hv=holdout&&Number.isFinite(holdout.psnr)&&Number.isFinite(holdout.ssim);
   if(!tv||!hv)return '学習画像と未学習画像の両方の評価値が揃っていません。';
   const gap=trainEval.psnr-holdout.psnr;
-  if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、現時点ではカメラ姿勢よりも固定10,000 Gaussian・SH degree 0・densificationなしによる表現力不足または最適化不足を優先して改善します。';
+  if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、現時点ではカメラ姿勢だけを主因とせず、固定seed Gaussian・SH degree 0・densificationなしによる表現力または最適化不足を引き続き評価します。';
   if(trainEval.psnr>=20&&trainEval.ssim>=.65&&(holdout.psnr<15||holdout.ssim<.45||gap>5))return '学習画像には適合できていますが未学習画像で大きく低下しています。カメラ姿勢・対応点・3D幾何の不整合を優先して改善します。';
   if(trainEval.psnr>=20&&holdout.psnr>=18&&trainEval.ssim>=.65&&holdout.ssim>=.60)return '学習画像・未学習画像とも一定の再現性があります。次はGaussian数、SH degree、軽量densificationを段階的に増やします。';
   return '学習画像への適合と未学習画像への一般化の両方が中間的です。容量改善とカメラ姿勢改善を一度に変えず、次段階で個別に比較します。';
@@ -349,7 +440,7 @@ function trRenderFitEvaluation(res,trainEval,holdout,history){
   const tp=trainEval&&Number.isFinite(trainEval.psnr)?`${trainEval.psnr.toFixed(2)} dB`:'—',ts=trainEval&&Number.isFinite(trainEval.ssim)?trainEval.ssim.toFixed(3):'—';
   const hp=holdout&&Number.isFinite(holdout.psnr)?`${holdout.psnr.toFixed(2)} dB`:'—',hs=holdout&&Number.isFinite(holdout.ssim)?holdout.ssim.toFixed(3):'—';
   const gap=trainEval&&holdout&&Number.isFinite(trainEval.psnr)&&Number.isFinite(holdout.psnr)?`${(trainEval.psnr-holdout.psnr).toFixed(2)} dB`:'—';
-  box.innerHTML=`<strong>学習画像と未学習画像の再投影比較</strong><br>学習画像: PSNR ${tp} / SSIM ${ts}${trainEval?.count?` / ${trainEval.count}視点`:''}<br>未学習画像: PSNR ${hp} / SSIM ${hs}${n?` / 評価 ${n}回`:''}<br>PSNR差: ${gap}<br><span>学習画像への適合度と、約1/8を除外した未学習画像への一般化を比較しています。</span><br>${trFitInterpretation(trainEval,holdout)}`;
+  box.innerHTML=`<strong>学習画像と未学習画像の再投影比較</strong><br>学習画像: PSNR ${tp} / SSIM ${ts}${trainEval?.count?` / ${trainEval.count}視点`:''}<br>未学習画像: PSNR ${hp} / SSIM ${hs}${n?` / 評価 ${n}回`:''}<br>PSNR差: ${gap}<br><span>学習画像への適合度と、元360°動画の撮影位置単位で除外した未学習位置への一般化を比較しています。</span><br>${trFitInterpretation(trainEval,holdout)}`;
 }
 function trRepresentativeView(item){const poses=item?.optimization?.poses||[];if(!poses.length)return null;const i=Math.max(0,Math.min(poses.length-1,Math.floor((poses.length-1)/2)));const p=poses[i],R=p?.cameraToWorld,C=p?.position;if(!Array.isArray(R)||R.length!==9||!Array.isArray(C)||C.length!==3)return null;let f=[R[2],-R[5],R[8]];const n=Math.hypot(f[0],f[1],f[2])||1;f=f.map(v=>v/n);const tm=item?.source?.frames?.[i]?.time;return{position:trReflectY3(C),forward:f,index:i,time:Number.isFinite(tm)?tm:null};}
 function trBoundsSummary(b){if(!b?.lo||!b?.hi)return'';const d=b.hi.map((v,i)=>Math.max(0,v-b.lo[i]));return`範囲 ${d.map(v=>v.toFixed(2)).join(' × ')}（任意スケール）`;}
@@ -475,7 +566,7 @@ async function trRun(item){
 
     trProgress(2,'Brush用の学習画像を準備しています');
     const ds=await trBuildDataset(item,id),plan=trPlan(ds.size);
-    trLog(`Training dataset prepared: ${ds.views} views / ${ds.size}px`);
+    trLog(`Training dataset prepared: ${ds.views} views / ${ds.size}px / ${ds.seedCount.toLocaleString()} hybrid seeds (${ds.sourceTracks} optimized BA/SfM tracks, ${ds.seedAnchors.toLocaleString()} track-anchored samples)`);
     trLog('Camera convention corrected: BA/SfM +Y up -> COLMAP/Brush +Y down (F R F, F C)');
     p.querySelector('#train-views').textContent=`${ds.views}枚`;
     p.querySelector('#train-plan').textContent=`${plan.label} ${plan.iters.toLocaleString()}回`;
@@ -488,11 +579,11 @@ async function trRun(item){
       if('total-train-iters'in c)c['total-train-iters']=plan.iters;
       if('max-splats'in c)c['max-splats']=plan.max;
       if('max-resolution'in c)c['max-resolution']=plan.res;
-      if('eval-split-every'in c)c['eval-split-every']=8;
+      if('eval-split-every'in c)c['eval-split-every']=6;
       const refineEvery=Math.max(32,Math.min(64,Math.max(1,Math.round(ds.views/10))*10));
       if('refine-every'in c)c['refine-every']=refineEvery;
       if('eval-every'in c)c['eval-every']=Math.max(500,Math.floor(plan.iters/4));if('sh-degree'in c)c['sh-degree']=0;
-      trLog(`Training config: ${plan.iters} iterations / fixed browser Gaussian budget / ${plan.res}px / SH degree 0 / hold-out every 8th image / eval every ${Math.max(500,Math.floor(plan.iters/4))} steps / stats reset every ${refineEvery} / random initialization`);
+      trLog(`Training config: ${plan.iters} iterations / ${ds.seedCount.toLocaleString()} BA/SfM-informed seed Gaussians / ${plan.res}px / SH degree 0 / source-position hold-out every 6th group / eval every ${Math.max(500,Math.floor(plan.iters/4))} steps / browser refine stats reset every ${refineEvery}`);
       return c;
     });
     trTraining=t;
@@ -566,7 +657,7 @@ async function trRun(item){
     ex.view=trRepresentativeView(item);trResultView=ex.view;
     res.hidden=false;
     const range=trBoundsSummary(ex.bounds);
-    res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB${range?` / ${range}`:''}`;
+    res.querySelector('#train-result-meta').textContent=`${ex.count.toLocaleString()} Gaussians / SH degree ${ex.degree} / ${(ex.blob.size/1024/1024).toFixed(1)} MB / 初期seed ${ds.seedCount.toLocaleString()}${range?` / ${range}`:''}`;
     trRenderGaussianDiagnostics(res,ex.diagnostics);
     trRenderFitEvaluation(res,trLastTrainEval,trLastEval,trEvalHistory);
     res.querySelector('#train-download').onclick=()=>trDownload(ex.blob,`360gs_segment_${item.source.segment.id}.ply`);
@@ -589,5 +680,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c6');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c7');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
