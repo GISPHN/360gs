@@ -1,3 +1,5 @@
+import { sphericalDetectFeatures, sphericalMatchFeatures } from './spherical.js?v=0.3c16';
+
 const sfmSourceVideo = document.querySelector('#source-video');
 const sfmProgressText = document.querySelector('#progress-text');
 
@@ -251,8 +253,41 @@ function sfmDescriptorDistance(a, b) { let sum = 0; for (let i = 0; i < a.length
 function sfmNearestTwo(feature, targets) { let bestIndex = -1, best = Infinity, second = Infinity; for (let i = 0; i < targets.length; i += 1) { const distance = sfmDescriptorDistance(feature.descriptor, targets[i].descriptor); if (distance < best) { second = best; best = distance; bestIndex = i; } else if (distance < second) second = distance; } return { bestIndex, best, second }; }
 function sfmMatchViews(left, right) { if (left.length < 6 || right.length < 6) return []; const f = left.map((x) => sfmNearestTwo(x, right)), r = right.map((x) => sfmNearestTwo(x, left)), matches = []; f.forEach((m, li) => { if (m.bestIndex < 0 || !Number.isFinite(m.second) || m.best > m.second * 0.77) return; const back = r[m.bestIndex]; if (!back || back.bestIndex !== li || !Number.isFinite(back.second) || back.best > back.second * 0.81) return; matches.push({ leftX: left[li].x, leftY: left[li].y, rightX: right[m.bestIndex].x, rightY: right[m.bestIndex].y, distance: m.best }); }); return matches; }
 function sfmBearing(x, y, yawDeg) { const halfFov = Math.tan((SFM_FOV_DEG * Math.PI / 180) / 2), nx = ((x + 0.5) / SFM_VIEW_SIZE * 2 - 1) * halfFov, ny = ((y + 0.5) / SFM_VIEW_SIZE * 2 - 1) * halfFov, local = sfmNormalize3([nx, -ny, 1]), yaw = yawDeg * Math.PI / 180, c = Math.cos(yaw), s = Math.sin(yaw); return sfmNormalize3([local[0] * c + local[2] * s, local[1], -local[0] * s + local[2] * c]); }
-function sfmCollectCorrespondences(leftFrame, rightFrame) { const corr = []; for (const leftView of leftFrame.views) { let best = null; for (const rightView of rightFrame.views) { const matches = sfmMatchViews(leftView.features, rightView.features); if (!best || matches.length > best.matches.length) best = { matches, rightView }; } if (!best || best.matches.length < 3) continue; for (const m of best.matches) corr.push({ leftBearing: sfmBearing(m.leftX, m.leftY, leftView.yaw), rightBearing: sfmBearing(m.rightX, m.rightY, best.rightView.yaw), quality: m.distance }); } return corr; }
-async function sfmBuildFrame(time, maps) { const pano = await sfmCapturePanorama(time); return { time, views: maps.map((map, i) => ({ yaw: SFM_VIEW_YAWS[i], features: sfmDetect(sfmProject(pano, map)) })) }; }
+function sfmCollectCorrespondences(leftFrame, rightFrame) {
+  const directMatches = sphericalMatchFeatures(leftFrame.sphericalFeatures || [], rightFrame.sphericalFeatures || [], {
+    ratio: 0.79,
+    reverseRatio: 0.83,
+    minConfidence: 0.13,
+  });
+  if (directMatches.length >= SFM_MIN_CORRESPONDENCES) {
+    return directMatches.slice(0, SFM_MAX_CORRESPONDENCES).map((match) => ({
+      leftBearing: [...match.left.bearing],
+      rightBearing: [...match.right.bearing],
+      quality: match.quality,
+      source: 'erp',
+    }));
+  }
+  const corr = [];
+  for (const leftView of leftFrame.views) {
+    let best = null;
+    for (const rightView of rightFrame.views) { const matches = sfmMatchViews(leftView.features, rightView.features); if (!best || matches.length > best.matches.length) best = { matches, rightView }; }
+    if (!best || best.matches.length < 3) continue;
+    for (const m of best.matches) corr.push({ leftBearing: sfmBearing(m.leftX, m.leftY, leftView.yaw), rightBearing: sfmBearing(m.rightX, m.rightY, best.rightView.yaw), quality: m.distance, source: 'perspective-fallback' });
+  }
+  return corr;
+}
+async function sfmBuildFrame(time, maps) {
+  const pano = await sfmCapturePanorama(time);
+  const sphericalFeatures = sphericalDetectFeatures(pano, SFM_EQ_WIDTH, SFM_EQ_HEIGHT, {
+    maxFeatures: 320,
+    scanStep: 4,
+    minResponse: 820,
+    minStd: 6.2,
+    minAngleDeg: 1.7,
+    maxLatitudeDeg: 80,
+  });
+  return { time, sphericalFeatures, views: maps.map((map, i) => ({ yaw: SFM_VIEW_YAWS[i], features: sfmDetect(sfmProject(pano, map)) })) };
+}
 function sfmPairSeed(a, b, n) { return (Math.floor(a * 1000) * 73856093 ^ Math.floor(b * 1000) * 19349663 ^ n * 83492791) >>> 0; }
 function sfmEstimatePair(left, right) { const corr = sfmCollectCorrespondences(left, right), result = sfmEstimateRelative(corr, sfmPairSeed(left.time, right.time, corr.length)); return { start: left.time, end: right.time, gap: right.time - left.time, ...result }; }
 
@@ -306,7 +341,7 @@ function sfmEnsurePanel() {
   panel = document.createElement('section'); panel.id = 'sfm-panel'; panel.className = 'sfm-panel'; panel.hidden = true;
   panel.innerHTML = `
     <div class="sfm-heading"><div><p class="eyebrow">局所SfM再計算</p><h3>3D化候補区間だけを細かく再構成</h3></div><span class="sfm-auto">自動設定</span></div>
-    <p class="sfm-description">3D化候補区間の内部だけキーフレームを追加し、相対姿勢を再推定します。さらに1枚飛ばしの整合性も確認し、成立した対応から疎な3D点を三角測量します。大きすぎる視差角は姿勢破綻の可能性があるため除外します。</p>
+    <p class="sfm-description">3D化候補区間の内部だけキーフレームを追加し、ERP全体から直接得た球面bearingで相対姿勢を再推定します。さらに1枚飛ばしの整合性も確認し、成立した対応から疎な3D点を三角測量します。ERP特徴が不足する場合だけ従来の透視特徴へ自動で戻します。</p>
     <div class="sfm-stats"><div><span>再計算した候補</span><strong id="sfm-count">—</strong></div><div><span>局所SfM良好</span><strong id="sfm-good">—</strong></div><div><span>追加キーフレーム</span><strong id="sfm-frames">—</strong></div><div><span>疎な3D点</span><strong id="sfm-points">—</strong></div></div>
     <div id="sfm-list" class="sfm-list"></div>
     <div id="sfm-message" class="message-box" hidden></div>
@@ -361,7 +396,7 @@ async function sfmRun(detail) {
       const geometry = sfmBuildLocalGeometry(frames, pairs), evaluation = sfmEvaluateSegment(segment, frames, pairs, skipPairs, geometry); results.push(evaluation);
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    if (generation !== sfmGeneration) return; sfmRenderResults(results, usedFrames); if (sfmProgressText) sfmProgressText.textContent = '候補区間の局所SfM再計算まで完了しました';
+    if (generation !== sfmGeneration) return; sfmRenderResults(results, usedFrames); if (sfmProgressText) sfmProgressText.textContent = 'ERP球面対応による局所SfM再計算まで完了しました';
   } catch (error) {
     const panelNow = sfmEnsurePanel(), message = panelNow?.querySelector('#sfm-message'); if (message) { message.hidden = false; message.className = 'message-box warning'; message.textContent = error?.message || '局所SfM再計算を完了できませんでした。'; } if (sfmProgressText) sfmProgressText.textContent = '局所SfM再計算を完了できませんでした';
   } finally { if (generation === sfmGeneration) sfmRunning = false; }

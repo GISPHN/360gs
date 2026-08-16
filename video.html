@@ -6,15 +6,15 @@
   <meta name="color-scheme" content="light" />
   <meta name="description" content="360°動画から撮影姿勢を推定し、ブラウザ内で3D Gaussian Splattingまで生成する360GS" />
   <title>360GS | 360°動画から3DGS</title>
-  <link rel="stylesheet" href="./styles.css?v=0.3c15" />
-  <link rel="stylesheet" href="./video.css?v=0.3c15" />
-  <link rel="stylesheet" href="./pose.css?v=0.3c15" />
-  <link rel="stylesheet" href="./segment.css?v=0.3c15" />
-  <link rel="stylesheet" href="./sfm.css?v=0.3c15" />
-  <link rel="stylesheet" href="./ba.css?v=0.3c15" />
-  <link rel="stylesheet" href="./dataset.css?v=0.3c15" />
-  <link rel="stylesheet" href="./training.css?v=0.3c15" />
-  <link rel="stylesheet" href="./autoscroll.css?v=0.3c15" />
+  <link rel="stylesheet" href="./styles.css?v=0.3c16" />
+  <link rel="stylesheet" href="./video.css?v=0.3c16" />
+  <link rel="stylesheet" href="./pose.css?v=0.3c16" />
+  <link rel="stylesheet" href="./segment.css?v=0.3c16" />
+  <link rel="stylesheet" href="./sfm.css?v=0.3c16" />
+  <link rel="stylesheet" href="./ba.css?v=0.3c16" />
+  <link rel="stylesheet" href="./dataset.css?v=0.3c16" />
+  <link rel="stylesheet" href="./training.css?v=0.3c16" />
+  <link rel="stylesheet" href="./autoscroll.css?v=0.3c16" />
 </head>
 <body>
   <header class="app-header">
@@ -22,12 +22,12 @@
       <div class="brand">360GS</div>
       <div class="brand-sub">360°動画から3D空間を作る</div>
     </div>
-    <span class="version">Prototype v0.3c15</span>
+    <span class="version">Prototype v0.3c16</span>
   </header>
 
   <main class="video-shell">
     <div class="screen-toolbar">
-      <button class="back-button" type="button" onclick="window.location.href='./index.html?v=0.3c15'">← ホームへ戻る</button>
+      <button class="back-button" type="button" onclick="window.location.href='./index.html?v=0.3c16'">← ホームへ戻る</button>
       <span class="step-label">360°動画</span>
     </div>
 
@@ -84,7 +84,7 @@
 
       <section id="feature-panel" class="feature-panel" aria-labelledby="feature-title" hidden>
         <div class="continuity-heading"><div><p class="eyebrow">局所特徴点チェック</p><h3 id="feature-title">透視画像で対応点を自動確認</h3></div><span class="continuity-auto">自動設定</span></div>
-        <p class="continuity-description">選ばれた360°キーフレームを前・右・後・左へ透視投影し、局所特徴点と対応点を評価します。</p>
+        <p class="continuity-description">選ばれた360°キーフレームのERP全体から直接球面特徴を抽出し、経度0°/360°の境界をまたいだ対応も含めて評価します。特徴が不足する場合だけ透視投影へ自動で戻します。</p>
         <div class="continuity-stats">
           <div class="continuity-stat"><span>局所解析キーフレーム</span><strong id="feature-frames">—</strong></div>
           <div class="continuity-stat"><span>比較したフレーム組</span><strong id="feature-pairs">—</strong></div>
@@ -98,7 +98,7 @@
 
       <section id="pose-panel" class="pose-panel" aria-labelledby="pose-title" hidden>
         <div class="pose-heading"><div><p class="eyebrow">相対カメラ姿勢推定</p><h3 id="pose-title">幾何学的に撮影時の動きを推定</h3></div><span class="pose-auto">自動設定</span></div>
-        <p class="pose-description">対応点を360°方向ベクトルへ変換し、RANSACとEssential matrixから相対回転と移動方向を求めます。</p>
+        <p class="pose-description">ERP上の対応点を直接360°bearingへ変換し、RANSACとEssential matrixから相対回転と移動方向を求めます。固定透視面の境界に依存しない球面幾何を優先します。</p>
         <div class="pose-stats">
           <div class="pose-stat"><span>姿勢解析キーフレーム</span><strong id="pose-frames">—</strong></div>
           <div class="pose-stat"><span>比較した区間</span><strong id="pose-pairs">—</strong></div>
@@ -121,14 +121,14 @@
 
   <video id="source-video" muted playsinline hidden></video>
   <canvas id="capture-canvas" hidden></canvas>
-  <script type="module" src="./video.js?v=0.3c15"></script>
-  <script type="module" src="./pose.js?v=0.3c15"></script>
-  <script type="module" src="./segment.js?v=0.3c15"></script>
-  <script type="module" src="./sfm.js?v=0.3c15"></script>
-  <script type="module" src="./tracking.js?v=0.3c15"></script>
-  <script type="module" src="./ba.js?v=0.3c15"></script>
-  <script type="module" src="./dataset.js?v=0.3c15"></script>
-  <script type="module" src="./training.js?v=0.3c15"></script>
-  <script type="module" src="./autoscroll.js?v=0.3c15"></script>
+  <script type="module" src="./video.js?v=0.3c16"></script>
+  <script type="module" src="./pose.js?v=0.3c16"></script>
+  <script type="module" src="./segment.js?v=0.3c16"></script>
+  <script type="module" src="./sfm.js?v=0.3c16"></script>
+  <script type="module" src="./tracking.js?v=0.3c16"></script>
+  <script type="module" src="./ba.js?v=0.3c16"></script>
+  <script type="module" src="./dataset.js?v=0.3c16"></script>
+  <script type="module" src="./training.js?v=0.3c16"></script>
+  <script type="module" src="./autoscroll.js?v=0.3c16"></script>
 </body>
 </html>
