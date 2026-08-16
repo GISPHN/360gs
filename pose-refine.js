@@ -97,10 +97,20 @@ function baselineReference(poses,selected){const b=[];for(let i=0;i<selected.len
 function fixedIndices(poses,selected,baseline){const fixed=new Set();if(!selected.length)return fixed;fixed.add(selected[0]);const origin=poses[selected[0]].position;let anchor=selected[Math.min(1,selected.length-1)];for(const i of selected.slice(1)){if(norm(sub(poses[i].position,origin))>=baseline*.8){anchor=i;break;}}fixed.add(anchor);return fixed;}
 function totalMotion(original,poses,selected){const trans=[],rot=[];for(const i of selected){trans.push(norm(sub(poses[i].position,original[i].position)));const R=matMul(matT(original[i].cameraToWorld),poses[i].cameraToWorld),trace=R[0]+R[4]+R[8],a=Math.acos(clamp((trace-1)/2,-1,1))*180/Math.PI;rot.push(a);}return{maxTranslation:Math.max(0,...trans),p90Translation:quantile(trans,.9),maxRotationDeg:Math.max(0,...rot),p90RotationDeg:quantile(rot,.9)};}
 
-export function refinePosesFromTriangulatedPoints(inputPoses,points,selectedIndices){
-  const selected=(selectedIndices||[]).filter(i=>inputPoses?.[i]);if(selected.length<3)return{accepted:false,reason:'pose再調整に必要な撮影位置が不足しています。',poses:inputPoses,points,usedTracks:0,usedObservations:0};
+
+function retriangulateBATracks(baTracks,poses){
+  return (baTracks||[]).map(t=>{
+    const obs=(t.observations||[]).filter(o=>Number.isInteger(o.frameIndex)&&Array.isArray(o.bearing)&&o.bearing.length===3).map(o=>({frameIndex:o.frameIndex,bearing:normalize(o.bearing),weight:1}));
+    if(obs.length<3)return t;
+    const position=solvePoint(obs,poses);
+    return position?{...t,position:[...position]}:t;
+  });
+}
+
+export function refinePosesFromTriangulatedPoints(inputPoses,points,selectedIndices,baTracks=[]){
+  const selected=(selectedIndices||[]).filter(i=>inputPoses?.[i]);if(selected.length<3)return{accepted:false,reason:'pose再調整に必要な撮影位置が不足しています。',poses:inputPoses,points,baTracks,usedTracks:0,usedObservations:0};
   const original=clonePoses(inputPoses),poses=clonePoses(inputPoses),baseline=baselineReference(poses,selected),tracks=buildTracks(points,poses),obs=tracks.reduce((s,t)=>s+t.observations.length,0);
-  if(tracks.length<PR_MIN_TRACKS||obs<PR_MIN_OBSERVATIONS)return{accepted:false,reason:`独立した3視点以上の球面対応が不足しています（${tracks.length}点 / ${obs}観測）。`,poses:inputPoses,points,usedTracks:tracks.length,usedObservations:obs};
+  if(tracks.length<PR_MIN_TRACKS||obs<PR_MIN_OBSERVATIONS)return{accepted:false,reason:`独立した3視点以上の球面対応が不足しています（${tracks.length}点 / ${obs}観測）。`,poses:inputPoses,points,baTracks,usedTracks:tracks.length,usedObservations:obs};
   const initial=metrics(tracks,poses),fixed=fixedIndices(poses,selected,baseline);let bestPoses=clonePoses(poses),bestTracks=tracks.map(t=>({...t,position:[...t.position]})),best={...initial},lambda=3e-3,iterations=0;
   for(let it=0;it<PR_MAX_ITERS;it++){
     const beforePoses=clonePoses(poses),beforeTracks=tracks.map(t=>({...t,position:[...t.position]})),before=metrics(tracks,poses);let changed=0;
@@ -118,7 +128,7 @@ export function refinePosesFromTriangulatedPoints(inputPoses,points,selectedIndi
   }
   const improvement=initial.medianDeg>1e-8?(initial.medianDeg-best.medianDeg)/initial.medianDeg:0,p90Improvement=initial.p90Deg>1e-8?(initial.p90Deg-best.p90Deg)/initial.p90Deg:0,motion=totalMotion(original,bestPoses,selected);
   const accepted=best.cost<initial.cost*.995&&(improvement>=.015||p90Improvement>=.025)&&best.rmsDeg<=initial.rmsDeg*1.002&&best.outlierRate<=Math.max(initial.outlierRate+.005,.10)&&motion.maxTranslation<=baseline*PR_MAX_TRANS_TOTAL_BASELINE&&motion.maxRotationDeg<=PR_MAX_ROT_TOTAL_DEG;
-  if(!accepted)return{accepted:false,reason:'球面2D–3D対応によるpose再調整で十分な全体誤差改善を確認できなかったため、c19の姿勢を維持します。',poses:inputPoses,points,initial,final:best,iterations,usedTracks:tracks.length,usedObservations:obs,fixed:[...fixed],motion,baseline};
-  const bySource=new Map(bestTracks.map(t=>[t.source,t.position]));const refinedPoints=(points||[]).map(p=>bySource.has(p)?{...p,position:[...bySource.get(p)]}:p);
-  return{accepted:true,reason:'独立した3視点以上の球面2D–3D対応で角度誤差が改善したため、再調整したcamera poseを採用します。',poses:bestPoses,points:refinedPoints,initial,final:best,iterations,usedTracks:tracks.length,usedObservations:obs,fixed:[...fixed],motion,baseline,medianImprovement:improvement,p90Improvement};
+  if(!accepted)return{accepted:false,reason:'球面2D–3D対応によるpose再調整で十分な全体誤差改善を確認できなかったため、c19の姿勢を維持します。',poses:inputPoses,points,baTracks,initial,final:best,iterations,usedTracks:tracks.length,usedObservations:obs,fixed:[...fixed],motion,baseline};
+  const bySource=new Map(bestTracks.map(t=>[t.source,t.position]));const refinedPoints=(points||[]).map(p=>bySource.has(p)?{...p,position:[...bySource.get(p)]}:p),refinedBA=retriangulateBATracks(baTracks,bestPoses);
+  return{accepted:true,reason:'独立した3視点以上の球面2D–3D対応で角度誤差が改善したため、再調整したcamera poseを採用します。',poses:bestPoses,points:refinedPoints,baTracks:refinedBA,initial,final:best,iterations,usedTracks:tracks.length,usedObservations:obs,fixed:[...fixed],motion,baseline,medianImprovement:improvement,p90Improvement};
 }
