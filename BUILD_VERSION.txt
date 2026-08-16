@@ -1,6 +1,7 @@
-360GS v0.3c11
-Controlled SH degree 1 appearance-capacity comparison
-Only model change from v0.3c10: SH degree 0 -> 1
-Views, camera geometry, 512px training limit, 30k seed, GPU-only growth and adaptive stop unchanged
-Baseline for comparison: train 19.71 dB / 0.563; held-out 18.86 dB / 0.484; gap 0.85 dB
+360GS v0.3c12
+Controlled Gaussian-density comparison after negligible SH1 gain
+Only training change from v0.3c11: growth-select-fraction x3 (0.24 / 0.21 / 0.15 by device tier)
+SH degree 1, camera geometry, views, 512px training limit, 30k high-tier seed, growth timing and adaptive stop unchanged
+c11 baseline: train 19.86 dB / 0.566; held-out 18.90 dB / 0.485; gap 0.96 dB; 34,992 Gaussians
+High-tier expected density after two existing growth events: approximately 46k, capped at 60k
 Build date: 2026-08-16
