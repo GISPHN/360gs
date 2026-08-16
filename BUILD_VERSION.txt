@@ -1,6 +1,6 @@
-360GS v0.3c9
-GPU-only bounded Gaussian growth without browser refine readbacks
-Fixes c8 field stall at the first ~1600-iteration densification boundary
-Brush runtime: compatibility pin 3b80985709e2ec04fd6c8622a40e36473647a8e0
-Browser growth: no training-time pruning, no argwhere/readback, no bounds recomputation
+360GS v0.3c10
+Late training-view fit diagnostic before adaptive stop
+Model behavior unchanged from v0.3c9: SH degree 0 and GPU-only bounded growth
+Train-fit evaluation begins in the final third at normal evaluation boundaries
+Adaptive stop waits for matching training-view PSNR/SSIM
 Build date: 2026-08-16
