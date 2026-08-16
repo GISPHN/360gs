@@ -32,9 +32,9 @@ new_log = old_log + "\n    trLog('Camera convention corrected: BA/SfM +Y up -> C
 if old_log in s and 'Camera convention corrected:' not in s:
     s = s.replace(old_log, new_log, 1)
 
-# Cache-bust every current training asset/runtime reference so the corrected
-# camera matrices are guaranteed to be used in the browser.
+# Visible version labels and cache-busting query parameters are separate forms.
 s = s.replace('v0.3c2', 'v0.3c4').replace('v0.3c3', 'v0.3c4')
+s = s.replace('v=0.3c2', 'v=0.3c4').replace('v=0.3c3', 'v=0.3c4')
 s = s.replace('Prototype v0.3c2', 'Prototype v0.3c4').replace('Prototype v0.3c3', 'Prototype v0.3c4')
 p.write_text(s, encoding='utf-8')
 
@@ -43,6 +43,7 @@ for name in ['video.html', 'index.html']:
     if q.exists():
         x = q.read_text(encoding='utf-8')
         x = x.replace('v0.3c2', 'v0.3c4').replace('v0.3c3', 'v0.3c4')
+        x = x.replace('v=0.3c2', 'v=0.3c4').replace('v=0.3c3', 'v=0.3c4')
         x = x.replace('Prototype v0.3c2', 'Prototype v0.3c4').replace('Prototype v0.3c3', 'Prototype v0.3c4')
         q.write_text(x, encoding='utf-8')
 
