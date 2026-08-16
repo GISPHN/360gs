@@ -1,0 +1,50 @@
+name: Synchronize v0.3c17 cache keys
+
+on:
+  push:
+    branches:
+      - v03c17-cache-sync
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v03c17-cache-sync
+      - name: Synchronize cache keys
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('index.html')
+          text=p.read_text(encoding='utf-8')
+          if '0.3c16' not in text: raise SystemExit('index c16 marker missing')
+          p.write_text(text.replace('0.3c16','0.3c17'),encoding='utf-8')
+          p=Path('training.js')
+          text=p.read_text(encoding='utf-8')
+          old_count=text.count('0.3c16')
+          if old_count < 2: raise SystemExit(f'expected Brush c16 cache keys, found {old_count}')
+          p.write_text(text.replace('0.3c16','0.3c17'),encoding='utf-8')
+      - name: Validate release consistency
+        run: |
+          node --check training.js
+          version="$(sed -n '1s/^360GS v//p' BUILD_VERSION.txt)"
+          test "$version" = "0.3c17"
+          grep -Fq "training.js?v=${version}" video.html
+          grep -Fq "training.css?v=${version}" video.html
+          grep -Fq "Prototype v${version}" video.html
+          grep -Fq "Prototype v${version}" index.html
+          grep -Fq "document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v${version}')" training.js
+          grep -Fq "brush_js_bg.wasm?v=${version}" training.js
+          grep -Fq "${TR_BRUSH}?v=${version}" training.js || grep -Fq "TR_BRUSH}?v=${version}" training.js
+      - name: Commit synchronized release
+        run: |
+          rm -f .github/workflows/sync-v03c17-cache.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Synchronize v0.3c17 release cache keys"
+          git push origin HEAD:v03c17-cache-sync
