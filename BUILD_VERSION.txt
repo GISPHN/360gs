@@ -1,3 +1,5 @@
-360GS v0.3c7
-Source-position holdout + BA/SfM-informed hybrid Gaussian initialization
+360GS v0.3c8
+Browser-bounded densification + adaptive convergence stopping
+Brush runtime: compatibility pin 3b80985709e2ec04fd6c8622a40e36473647a8e0
+Upstream Brush 1.0.0 reviewed 2026-08-16; migration intentionally isolated from this quality experiment
 Build date: 2026-08-16
