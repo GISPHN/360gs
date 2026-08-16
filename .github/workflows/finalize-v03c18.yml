@@ -1,0 +1,46 @@
+name: Finalize v0.3c18 visible geometry diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c18-geometry-seeds
+    paths:
+      - 'tools/finalize_v03c18.py'
+      - '.github/workflows/finalize-v03c18.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply visible diagnostics finalizer
+        run: python tools/finalize_v03c18.py
+      - name: Validate final c18 frontend
+        run: |
+          node --check training.js
+          node --check geometry-seed.js
+          grep -Fq '幾何seed' training.js
+          grep -Fq '2視点' training.js
+          grep -Fq 'randomDepthSeeds:ds.randomDepthSeeds' training.js
+          grep -Fq 'Prototype v0.3c18' video.html
+      - name: Commit final c18 frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js
+          if git diff --cached --quiet; then
+            echo "c18 visible diagnostics unchanged"
+          else
+            git commit -m "Finalize v0.3c18 geometry diagnostics"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
