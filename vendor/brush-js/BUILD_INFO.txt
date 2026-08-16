@@ -1,8 +1,11 @@
 Brush JavaScript/WebAssembly runtime.
 Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS extension: v0.3c13 six-face 90-degree cubemap projection experiment.
-Source-position holdout and train-fit diagnostics group six cubemap faces per original 360 source frame.
-SH degree 1 and the v0.3c12 browser-safe Gaussian density schedule are retained.
-The cubemap is a compatibility experiment before a possible direct equirectangular WebGPU rasterizer.
+360GS extension: v0.3c21 direct differentiable equirectangular camera model.
+Projection uses longitude/latitude ERP coordinates with analytic Jacobian and analytic projection VJP.
+Radial range is used for full-sphere depth ordering.
+Training uses two complementary direct ERP seam variants per original source position, not cubemap faces.
+Spherical-area and seam weights are supplied through Brush mask alpha.
+Direct ERP long-edge training cap is device-adaptive up to 1536 px to retain angular detail.
+c20 spherical geometry, post-triangulation pose refinement, SH1 and browser-safe GPU-only growth are retained.
 wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
 Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.

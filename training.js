@@ -1,6 +1,6 @@
-import { buildTriangulatedGeometrySeeds } from './geometry-seed.js?v=0.3c20';
-import { buildGuardedDepthPriorSeeds } from './depth-prior.js?v=0.3c20';
-import { refinePosesFromTriangulatedPoints } from './pose-refine.js?v=0.3c20';
+import { buildTriangulatedGeometrySeeds } from './geometry-seed.js?v=0.3c21';
+import { buildGuardedDepthPriorSeeds } from './depth-prior.js?v=0.3c21';
+import { refinePosesFromTriangulatedPoints } from './pose-refine.js?v=0.3c21';
 
 const trVideo = document.querySelector('#source-video');
 const trPageProgress = document.querySelector('#progress-text');
@@ -273,18 +273,57 @@ function trInitPly(tracks,poses,target,pairSeeds=[],depthSeeds=[]){
 
 async function trDir(p,n){return p.getDirectoryHandle(n,{create:true});}
 async function trWrite(root,path,data){const q=path.split('/');let d=root;for(let i=0;i<q.length-1;i++)d=await trDir(d,q[i]);const f=await d.getFileHandle(q.at(-1),{create:true}),w=await f.createWritable();await w.write(data);await w.close();}
+
+function trErpFrameCanvas(video,w,h,rollHalf=false){
+  const base=document.createElement('canvas');base.width=w;base.height=h;
+  const b=base.getContext('2d',{alpha:false});if(!b)throw new Error('ERP学習画像Canvasを作成できません。');
+  b.imageSmoothingEnabled=true;b.imageSmoothingQuality='high';b.drawImage(video,0,0,w,h);
+  if(!rollHalf)return base;
+  const out=document.createElement('canvas');out.width=w;out.height=h;
+  const c=out.getContext('2d',{alpha:false});if(!c)throw new Error('ERP seam移動Canvasを作成できません。');
+  const half=Math.floor(w/2),right=w-half;
+  c.drawImage(base,half,0,right,h,0,0,right,h);
+  c.drawImage(base,0,0,half,h,right,0,half,h);
+  return out;
+}
+function trErpWeightMask(w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const x=c.getContext('2d');if(!x)throw new Error('ERP球面重みmaskを作成できません。');
+  const im=x.createImageData(w,h),d=im.data;
+  // Complementary longitude weights: the native view uses
+  // .5*(1+cos(lon)); the 180-degree rolled view sees lon+pi and therefore
+  // contributes .5*(1-cos(lon)). Their sum is exactly one. Multiplying both
+  // by cos(latitude) yields an unbiased spherical-area weight while every
+  // longitude seam is supervised strongly by the other view.
+  for(let yy=0;yy<h;yy++){
+    const lat=((yy+.5)/h-.5)*Math.PI,area=Math.max(0,Math.cos(lat));
+    for(let xx=0;xx<w;xx++){
+      const lon=((xx+.5)/w-.5)*Math.PI*2,seam=.5*(1+Math.cos(lon)),weight=Math.max(0,Math.min(1,area*seam));
+      const i=(yy*w+xx)*4;d[i]=255;d[i+1]=255;d[i+2]=255;d[i+3]=Math.round(weight*255);
+    }
+  }
+  x.putImageData(im,0,0);return c;
+}
+async function trPng(canvas){return new Promise((res,rej)=>canvas.toBlob(b=>b?res(b):rej(new Error('PNG生成に失敗しました。')),'image/png'));}
+function trNerfstudioMatrix(pose,yawDeg=0){
+  // Desired Brush camera pose is the same +Y-down convention used by the
+  // former COLMAP path. Nerfstudio's loader converts OpenGL (+Y up,+Z back)
+  // by flipping its local Y/Z columns, so invert that conversion here.
+  const Rb=trReflectYMat(trMul(pose.cameraToWorld,trYaw(yawDeg))),C=trReflectY3(pose.position);
+  const Rgl=[Rb[0],-Rb[1],-Rb[2],Rb[3],-Rb[4],-Rb[5],Rb[6],-Rb[7],-Rb[8]];
+  return[[Rgl[0],Rgl[1],Rgl[2],C[0]],[Rgl[3],Rgl[4],Rgl[5],C[1]],[Rgl[6],Rgl[7],Rgl[8],C[2]],[0,0,0,1]];
+}
+
 async function trBuildDataset(item,id){
   if(!navigator.storage?.getDirectory)throw new Error('ブラウザ内の一時学習領域を利用できません。Chrome / Edgeを使用してください。');
   const root=await navigator.storage.getDirectory(),base=await trDir(root,'360gs-brush'),dn=`segment-${item.source.segment.id}`;
   try{await base.removeEntry(dn,{recursive:true});}catch{}
   const dir=await trDir(base,dn),sel=trSelect(Math.min(item.optimization.poses.length,item.source.frames.length));
-  const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,rr=trRenderer(size),focal=(size/2)/Math.tan(TR_FOV*Math.PI/360);
-  await trWrite(dir,'sparse/0/cameras.txt',`# CAMERA_ID MODEL WIDTH HEIGHT PARAMS\n1 PINHOLE ${size} ${size} ${focal} ${focal} ${size/2} ${size/2}\n`);
-  await trWrite(dir,'sparse/0/points3D.txt','# 360GS uses root init.ply for BA/SfM-informed browser initialization.\n');
+  const shown=parseInt(document.querySelector('#dataset-size')?.textContent||'',10),size=[640,768,1024].includes(shown)?shown:768,erpW=Math.min(2048,Math.max(1024,size*2)),erpH=Math.max(2,Math.round(erpW/2));
   const originalSelectedPoses=sel.map(fi=>item.optimization.poses[fi]).filter(Boolean);
   const preflight=trGeometryPreflight(originalSelectedPoses);
   trLog(`Geometry preflight: ${preflight.checked} camera-face tests / face ${preflight.maxFaceDeg.toFixed(6)} deg / ray ${preflight.maxRayDeg.toFixed(6)} deg / camera-center ${preflight.maxCenterError.toExponential(2)} / ortho ${preflight.maxOrtho.toExponential(2)} / det ${preflight.minDet.toFixed(5)}..${preflight.maxDet.toFixed(5)}`);
-  if(!preflight.ok)throw new Error('6面cubemapとCOLMAP/Brushカメラ外部パラメータの自己検査に失敗しました。誤った幾何で学習せず安全に停止しました。');
+  if(!preflight.ok)throw new Error('direct ERPとCOLMAP/Brushカメラ外部パラメータの自己検査に失敗しました。誤った幾何で学習せず安全に停止しました。');
   trProgress(2.0,'pose既知の球面epipolar制約でERP対応点を高密度化しています');
   const stereoInitial=await buildTriangulatedGeometrySeeds(trVideo,item,sel,(f,text)=>trProgress(2.0+1.7*f,text));
   trLog(`Dense geometry: ${stereoInitial.points.length.toLocaleString()} accepted points / ${stereoInitial.multiViewPoints||0} with >=3-view support / ${stereoInitial.acceptedPairs}/${stereoInitial.pairs} useful pairs / ${stereoInitial.featureCount||0} ERP features / median epipolar ${Number(stereoInitial.medianEpipolarDeg||0).toFixed(2)} deg / reprojection ${Number(stereoInitial.medianReprojDeg||0).toFixed(2)} deg`);
@@ -312,31 +351,28 @@ async function trBuildDataset(item,id){
   const seed=trInitPly(workingTracks,selectedPoses,trSeedBudget(),stereo.points,depth.points);
   trLog(`Initial geometry cloud: ${seed.anchors.toLocaleString()} trusted anchors (${seed.sourceTracks} BA + ${seed.stereoPoints} triangulated + ${seed.depthPoints} depth-consistent) -> ${seed.count.toLocaleString()} surface-aware seeds / spacing ${seed.spacing.toFixed(4)} / random-depth ${seed.randomDepthSeeds}`);
   await trWrite(dir,'init.ply',seed.blob);
-  const lines=['# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME'];let iid=1,made=0;
+  const frames=[],maskBlob=await trPng(trErpWeightMask(erpW,erpH));let made=0;
+  const variants=[{tag:'erp0',yaw:0,roll:false},{tag:'erp180',yaw:180,roll:true}];
   for(let o=0;o<sel.length;o++){
     if(id!==trRunId)throw new Error('処理が更新されました。');
     const fi=sel[o],pose=workingPoses[fi],tm=item.source.frames[fi].time;
     await trSeek(tm);
-    for(let k=0;k<TR_FACES.length;k++){
-      const face=TR_FACES[k];
-      rr.render(trVideo,face.yaw,face.pitch);
-      const blob=await trJpeg(rr.canvas),name=`f${String(o).padStart(3,'0')}_${face.name}.jpg`;
-      await trWrite(dir,`images/${name}`,blob);
-      const Rcw=trReflectYMat(trMul(pose.cameraToWorld,trFaceRot(face))),C=trReflectY3(pose.position),R=trT(Rcw),pv=trMv(R,C),q=trQuat(R);
-      lines.push(`${iid} ${q[0]} ${q[1]} ${q[2]} ${q[3]} ${-pv[0]} ${-pv[1]} ${-pv[2]} 1 ${name}`,'');
-      iid++;made++;trProgress(2+8*made/(sel.length*TR_FACES.length),`Brush用6面cubemapを準備しています ${made}/${sel.length*TR_FACES.length}`);
-      await new Promise(r=>setTimeout(r,0));
+    for(const variant of variants){
+      const canvas=trErpFrameCanvas(trVideo,erpW,erpH,variant.roll),blob=await trJpeg(canvas),stem=`f${String(o).padStart(3,'0')}_${variant.tag}`,name=`${stem}.jpg`;
+      await trWrite(dir,`images/${name}`,blob);await trWrite(dir,`masks/${stem}.png`,maskBlob);
+      frames.push({file_path:`images/${name}`,camera_model:'EQUIRECTANGULAR',w:erpW,h:erpH,cx:erpW/2,cy:erpH/2,camera_angle_x:Math.PI*2,camera_angle_y:Math.PI,transform_matrix:trNerfstudioMatrix(pose,variant.yaw)});
+      made++;trProgress(6+4*made/(sel.length*variants.length),`Brush用direct ERPを準備しています ${made}/${sel.length*variants.length}`);await new Promise(r=>setTimeout(r,0));
     }
   }
-  await trWrite(dir,'sparse/0/images.txt',lines.join('\n')+'\n');
-  return{dir,views:sel.length*TR_FACES.length,size,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,stereoPoints:seed.stereoPoints,depthPoints:seed.depthPoints,seedScale:seed.sceneScale,seedSpacing:seed.spacing,randomDepthSeeds:seed.randomDepthSeeds,geometryPreflight:preflight,depthPrior:depth,poseRefinement,refinedPoses:workingPoses};
+  await trWrite(dir,'transforms.json',JSON.stringify({camera_model:'EQUIRECTANGULAR',w:erpW,h:erpH,cx:erpW/2,cy:erpH/2,camera_angle_x:Math.PI*2,camera_angle_y:Math.PI,frames},null,2));
+  return{dir,views:sel.length*2,size:erpW,erpHeight:erpH,seedCount:seed.count,seedAnchors:seed.anchors,sourceTracks:seed.sourceTracks,stereoPoints:seed.stereoPoints,depthPoints:seed.depthPoints,seedScale:seed.sceneScale,seedSpacing:seed.spacing,randomDepthSeeds:seed.randomDepthSeeds,geometryPreflight:preflight,depthPrior:depth,poseRefinement,refinedPoses:workingPoses,projection:'direct-erp-dual-seam'};
 }
 
 function trPlan(size,seedCount=trSeedBudget()){
   const m=navigator.deviceMemory||4,c=navigator.hardwareConcurrency||4;
-  if(m>=12&&c>=8)return{iters:7600,minIters:5200,max:Math.max(60000,Math.ceil(seedCount*3.0)),res:Math.min(size,512),label:'高品質・球面幾何＋post-pose再調整',refineEvery:1200,growthStop:4200,growthFraction:.28,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  if(m>=8&&c>=6)return{iters:6800,minIters:4800,max:Math.max(50000,Math.ceil(seedCount*3.0)),res:Math.min(size,512),label:'品質優先・球面幾何＋post-pose再調整',refineEvery:1200,growthStop:4200,growthFraction:.25,evalEvery:800,plateauDb:.15,plateauSsim:.008};
-  return{iters:5200,minIters:4000,max:Math.max(36000,Math.ceil(seedCount*2.6)),res:Math.min(size,384),label:'省メモリ・球面幾何＋post-pose再調整',refineEvery:1400,growthStop:3000,growthFraction:.20,evalEvery:600,plateauDb:.12,plateauSsim:.006};
+  if(m>=12&&c>=8)return{iters:7600,minIters:5200,max:Math.max(60000,Math.ceil(seedCount*3.0)),res:Math.min(size,1536),label:'高品質・direct ERP＋post-pose再調整',refineEvery:1200,growthStop:4200,growthFraction:.28,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  if(m>=8&&c>=6)return{iters:6800,minIters:4800,max:Math.max(50000,Math.ceil(seedCount*3.0)),res:Math.min(size,1024),label:'品質優先・direct ERP＋post-pose再調整',refineEvery:1200,growthStop:4200,growthFraction:.25,evalEvery:800,plateauDb:.15,plateauSsim:.008};
+  return{iters:5200,minIters:4000,max:Math.max(36000,Math.ceil(seedCount*2.6)),res:Math.min(size,768),label:'省メモリ・direct ERP＋post-pose再調整',refineEvery:1400,growthStop:3000,growthFraction:.20,evalEvery:600,plateauDb:.12,plateauSsim:.006};
 }
 function trShouldEarlyStop(plan){
   const h=trEvalHistory.filter(x=>Number.isFinite(x?.psnr)&&Number.isFinite(x?.ssim)&&Number.isFinite(x?.iter));
@@ -355,7 +391,7 @@ function trShouldEarlyStop(plan){
   }
   return null;
 }
-async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c20`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c20', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
+async function trRuntimeReady(){if(trRuntime)return trRuntime;if(!navigator.gpu)throw new Error('WebGPUが利用できません。Chrome / Edgeの最新版とWebGPU対応GPUが必要です。');let mod;try{mod=await import(`${TR_BRUSH}?v=0.3c21`);}catch(e){throw new Error('Brush学習エンジンを読み込めません。WASMの準備完了後にページを再読み込みしてください。');}await mod.default(new URL('./vendor/brush-js/brush_js_bg.wasm?v=0.3c21', window.location.href));const ad=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!ad)throw new Error('WebGPUアダプターを取得できません。');const ai=ad.info||{};trLog(`WebGPU adapter: ${ai.vendor||'unknown'} / ${ai.architecture||ai.device||ai.description||'unknown'}`);const ft=[...ad.features].filter(x=>x!=='mappable-primary-buffers'),lm={};for(const k in ad.limits){const v=ad.limits[k];if(typeof v==='number')lm[k]=v;}let dev;try{dev=await ad.requestDevice({requiredFeatures:ft,requiredLimits:lm});}catch{dev=await ad.requestDevice();}const app=new mod.BrushApp();trProgress(1.5,'BrushのGPU共有初期化を完了しています');await app.initExisting(ad,dev,dev.queue);const lostPromise=dev.lost.then(info=>{throw new Error(`WebGPUデバイスが失われました: ${info?.message||info?.reason||'unknown'}`);});const progressApi=typeof mod.trainingDiagStage==='function';trRuntime={mod,device:dev,app,progressApi,lostPromise};return trRuntime;}
 function trKind(mod,msg){for(const[k,v]of Object.entries(mod.BrushMessageKind||{}))if(v===msg.kind&&Number.isNaN(Number(k)))return k;return String(msg.kind);}
 function trApply(rt,msg,plan){
   const p=trPanel(),k=trKind(rt.mod,msg);
@@ -582,7 +618,7 @@ function trFitInterpretation(trainEval,holdout){
   if(trainEval.psnr<15||trainEval.ssim<.50)return '学習に使った画像自体への適合が低いため、幾何整合seedを使用しても不足が残っています。次は直接ERP rasterization、カメラ自己較正、入力視点密度を個別に評価します。';
   if(trainEval.psnr>=20&&trainEval.ssim>=.65&&(holdout.psnr<15||holdout.ssim<.45||gap>5))return '学習画像には適合できていますが未学習画像で大きく低下しています。カメラ姿勢・対応点・3D幾何の不整合を優先して改善します。';
   if(trainEval.psnr>=20&&holdout.psnr>=18&&trainEval.ssim>=.65&&holdout.ssim>=.60)return '学習画像・未学習画像とも一定の再現性があります。次はGaussian数、SH degree、軽量densificationを段階的に増やします。';
-  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c19ではpose既知の球面epipolar対応、複数視点支持、実測点で較正したcross-view depth inlier、surface-aware初期化を組み合わせています。改善が限定的なら、次はcubemap学習を終了し直接ERP rasterizationとカメラ自己較正へ進みます。';
+  return '学習画像への適合と未学習画像への一般化の両方が中間的です。c21ではc20の球面幾何とpose再調整を維持し、direct ERPを廃止してdirect ERP rasterizationへ移行しています。残る誤差はERP camera model、stitching distortion、Gaussian geometryを個別に評価します。';
 }
 function trRenderFitEvaluation(res,trainEval,holdout,history){
   if(!res)return;
@@ -825,7 +861,7 @@ async function trRun(item){
       if('split-at-screen-size'in c)c['split-at-screen-size']=0;
       if('eval-every'in c)c['eval-every']=plan.evalEvery;
       if('sh-degree'in c)c['sh-degree']=1;
-      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} geometry-anchored seed Gaussians (${ds.sourceTracks} BA + ${ds.stereoPoints} pose-guided triangulated + ${ds.depthPoints||0} depth-consistent / random-depth ${ds.randomDepthSeeds}) / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / 6-face 90deg cubemap / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
+      trLog(`Training config: ${plan.iters} max iterations / early-stop after ${plan.minIters} / ${ds.seedCount.toLocaleString()} geometry-anchored seed Gaussians (${ds.sourceTracks} BA + ${ds.stereoPoints} pose-guided triangulated + ${ds.depthPoints||0} depth-consistent / random-depth ${ds.randomDepthSeeds}) / max ${plan.max.toLocaleString()} Gaussians / ${plan.res}px / SH degree 1 / direct ERP dual-seam spherical-weighted supervision / source-position hold-out every 6th group / eval every ${plan.evalEvery} / GPU-only growth every ${plan.refineEvery} until ${plan.growthStop} / growth fraction ${(plan.growthFraction*100).toFixed(0)}% / browser pruning disabled during training`);
       return c;
     });
     trTraining=t;
@@ -930,5 +966,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c20');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c21');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';

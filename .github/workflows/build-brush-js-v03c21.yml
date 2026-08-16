@@ -1,0 +1,201 @@
+name: Build Brush JS v0.3c21 direct ERP rasterizer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c21-direct-erp-rasterizer
+    paths:
+      - '.github/workflows/build-brush-js-v03c21.yml'
+      - 'tools/patch_v03c21.py'
+      - 'tools/patch_v03c21_resolution.py'
+
+concurrency:
+  group: brush-js-v03c21-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout compatibility-pinned Brush source
+        uses: actions/checkout@v4
+        with:
+          repository: ArthurBrussee/brush
+          ref: 3b80985709e2ec04fd6c8622a40e36473647a8e0
+          path: _brush
+          lfs: false
+
+      - name: Reconstruct current browser-safe Brush base
+        run: |
+          git checkout c2db1e79967705de7212390933056909d7cb1e1d -- training.js video.html index.html README.md
+          python tools/patch_v03b9.py
+          python tools/patch_v03c0.py
+          git checkout d185cab9ef18d409689cf51f2395bfec4389dbde -- training.js video.html index.html README.md BUILD_VERSION.txt
+          python tools/patch_v03c6.py
+          python tools/patch_v03c7.py
+          python tools/patch_v03c8.py
+          python tools/patch_v03c9.py
+          python tools/patch_v03c10.py
+          python tools/patch_v03c11.py
+          python tools/patch_v03c12.py
+          python tools/patch_v03c13.py
+          git checkout "$GITHUB_SHA" -- training.js video.html index.html README.md BUILD_VERSION.txt
+
+      - name: Apply v0.3c21 direct ERP patch
+        run: |
+          python tools/patch_v03c21.py
+          python tools/patch_v03c21_resolution.py
+
+      - name: Validate frontend and patch syntax
+        run: |
+          python -m py_compile tools/patch_v03c21.py tools/patch_v03c21_resolution.py
+          node --check training.js
+          node --check geometry-seed.js
+          node --check depth-prior.js
+          node --check pose-refine.js
+          node --check spherical.js
+
+      - name: Verify direct ERP implementation markers
+        run: |
+          set -euo pipefail
+          check(){ grep -Fq "$1" "$2" && echo "OK: $2 :: $1" || { echo "MISSING: $2 :: $1"; exit 1; }; }
+          check 'pub mod equirectangular;' _brush/crates/brush-render/src/kernels/camera_model/mod.rs
+          check 'Equirectangular' _brush/crates/brush-render/src/kernels/camera_model/mod.rs
+          check 'project_equirectangular' _brush/crates/brush-render/src/kernels/camera_model/equirectangular.rs
+          check 'calculate_projection_vjp_equirectangular' _brush/crates/brush-render/src/kernels/camera_model/equirectangular.rs
+          check 'Some("EQUIRECTANGULAR"' _brush/crates/brush-dataset/src/formats/nerfstudio.rs
+          check 'let source_group = i / 2' _brush/crates/brush-dataset/src/formats/mod.rs
+          check 'let groups = n / 2' _brush/crates/brush-process/src/train_stream.rs
+          check "camera_model:'EQUIRECTANGULAR'" training.js
+          check 'trErpWeightMask' training.js
+          check 'direct ERP dual-seam' training.js
+          check 'erpW=Math.min(2048,Math.max(1024,size*2))' training.js
+          check "res:Math.min(size,1536),label:'高品質・direct ERP" training.js
+          check 'Prototype v0.3c21' index.html
+          check 'Prototype v0.3c21' video.html
+          check 'brush_js_bg.wasm?v=0.3c21' training.js
+
+      - name: Analytic ERP projection differential tests
+        run: |
+          python - <<'PY'
+          import math, random
+          def project(p,w=1024,h=512):
+              x,y,z=p; r=math.hypot(x,z)
+              return (w/(2*math.pi)*math.atan2(x,z)+w/2,
+                      h/math.pi*math.atan2(y,r)+h/2)
+          def jac(p,w=1024,h=512):
+              x,y,z=p; s=x*x+y*y+z*z; r2=x*x+z*z; r=math.sqrt(r2)
+              fx=w/(2*math.pi); fy=h/math.pi
+              return ((fx*z/r2,0,-fx*x/r2),
+                      (-fy*x*y/(r*s),fy*r/s,-fy*z*y/(r*s)))
+          def hess(p,w=1024,h=512):
+              x,y,z=p; s=x*x+y*y+z*z; r2=x*x+z*z; r=math.sqrt(r2)
+              fx=w/(2*math.pi); fy=h/math.pi
+              ir=1/r; ir2=1/r2; ir22=ir2*ir2; ir3=ir*ir2; is2=1/(s*s)
+              hu=(( -2*fx*x*z*ir22,0,fx*(x*x-z*z)*ir22),
+                  (0,0,0),
+                  (fx*(x*x-z*z)*ir22,0,2*fx*x*z*ir22))
+              common=3*r2+y*y
+              xx=fy*y*(2*x*x*r2+x*x*s-r2*s)*ir3*is2
+              xy=fy*x*(y*y-r2)*ir*is2
+              xz=fy*x*y*z*common*ir3*is2
+              yy=-2*fy*y*r*is2
+              yz=fy*z*(y*y-r2)*ir*is2
+              zz=fy*y*(2*z*z*r2+z*z*s-r2*s)*ir3*is2
+              hv=((xx,xy,xz),(xy,yy,yz),(xz,yz,zz))
+              return hu,hv
+          random.seed(21); worst_j=0; worst_h=0
+          for _ in range(100):
+              p=[random.uniform(-3,3),random.uniform(-2,2),random.uniform(-3,3)]
+              if p[0]*p[0]+p[2]*p[2] < .2: p[0]+=1
+              J=jac(p); H=hess(p); eps=1e-5
+              for k in range(3):
+                  a=p[:]; b=p[:]; a[k]+=eps; b[k]-=eps
+                  pa,pb=project(a),project(b)
+                  if abs(pa[0]-pb[0])>100: continue
+                  Ja,Jb=jac(a),jac(b)
+                  for rr in range(2):
+                      fd=(pa[rr]-pb[rr])/(2*eps)
+                      worst_j=max(worst_j,abs(fd-J[rr][k]))
+                      for cc in range(3):
+                          fd2=(Ja[rr][cc]-Jb[rr][cc])/(2*eps)
+                          worst_h=max(worst_h,abs(fd2-H[rr][cc][k]))
+          print('ERP Jacobian max abs error',worst_j)
+          print('ERP Hessian max abs error',worst_h)
+          assert worst_j < 2e-4 and worst_h < 2e-3
+          PY
+
+      - name: Verify ERP camera convention and complementary seam rotation
+        run: |
+          python - <<'PY'
+          import math
+          # Identity source pose -> identity Brush camera after Y reflection on
+          # both source/world conventions; 180 roll rotates local forward to back.
+          def yaw(a):
+              c,s=math.cos(a),math.sin(a)
+              return [[c,0,s],[0,1,0],[-s,0,c]]
+          R0=yaw(0); R1=yaw(math.pi)
+          f0=[R0[i][2] for i in range(3)]; f1=[R1[i][2] for i in range(3)]
+          assert abs(f0[2]-1)<1e-9 and abs(f1[2]+1)<1e-9
+          # A half-width roll maps the old ERP seam/back direction to the new centre.
+          assert sum(a*b for a,b in zip(f0,f1)) < -0.999999
+          print('ERP dual-seam camera convention test passed')
+          PY
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Check Brush direct ERP Rust
+        run: cargo check --manifest-path _brush/Cargo.toml -p brush-render -p brush-dataset
+
+      - name: Build brush-js WebAssembly
+        run: |
+          rm -rf vendor/brush-js
+          mkdir -p vendor/brush-js
+          wasm-pack build _brush/apps/brush-js \
+            --release \
+            --target web \
+            --out-dir "$GITHUB_WORKSPACE/vendor/brush-js" \
+            --out-name brush_js
+          rm -f vendor/brush-js/.gitignore
+          printf '%s\n' \
+            'Brush JavaScript/WebAssembly runtime.' \
+            'Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.' \
+            '360GS extension: v0.3c21 direct differentiable equirectangular camera model.' \
+            'Projection uses longitude/latitude ERP coordinates with analytic Jacobian and analytic projection VJP.' \
+            'Radial range is used for full-sphere depth ordering.' \
+            'Training uses two complementary direct ERP seam variants per original source position, not cubemap faces.' \
+            'Spherical-area and seam weights are supplied through Brush mask alpha.' \
+            'Direct ERP long-edge training cap is device-adaptive up to 1536 px to retain angular detail.' \
+            'c20 spherical geometry, post-triangulation pose refinement, SH1 and browser-safe GPU-only growth are retained.' \
+            'wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.' \
+            'Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.' \
+            > vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated runtime and c21 frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor/brush-js training.js index.html video.html README.md BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "v0.3c21 output is unchanged."
+          else
+            git commit -m "Add v0.3c21 direct ERP rasterizer runtime"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
