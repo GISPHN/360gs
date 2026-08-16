@@ -1,7 +1,7 @@
-360GS v0.3c12
-Controlled Gaussian-density comparison after negligible SH1 gain
-Only training change from v0.3c11: growth-select-fraction x3 (0.24 / 0.21 / 0.15 by device tier)
-SH degree 1, camera geometry, views, 512px training limit, 30k high-tier seed, growth timing and adaptive stop unchanged
-c11 baseline: train 19.86 dB / 0.566; held-out 18.90 dB / 0.485; gap 0.96 dB; 34,992 Gaussians
-High-tier expected density after two existing growth events: approximately 46k, capped at 60k
+360GS v0.3c13
+Six-face 90-degree cubemap projection/camera comparison
+Primary change from v0.3c12: 4 equatorial 100-degree tangent views -> 6 complete 90-degree cubemap faces
+SH degree 1, c12 Gaussian density schedule, 512px limit, optimization horizon and adaptive stop unchanged
+Brush source-position holdout and train-fit diagnostics updated from 4-face to 6-face groups
+c12 baseline: 46,128 Gaussians; train 19.88 dB / 0.569; held-out 18.88 dB / 0.484; gap 1.00 dB
 Build date: 2026-08-16
