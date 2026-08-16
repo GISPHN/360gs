@@ -1,3 +1,5 @@
+import { sphericalDetectFeatures, sphericalMatchFeatures } from './spherical.js?v=0.3c16';
+
 const poseSourceVideo = document.querySelector('#source-video');
 const poseFeatureMessage = document.querySelector('#feature-message');
 const poseProgressText = document.querySelector('#progress-text');
@@ -512,19 +514,48 @@ function poseBearingFromViewPoint(x, y, yawDeg) {
 }
 
 function poseCollectCorrespondences(leftFrame, rightFrame) {
+  // v0.3c16: match directly on the equirectangular sphere first. Bearings are
+  // created from the original ERP pixels, so camera geometry no longer depends
+  // on four tangent-plane crops. Keep the old path only as a safety fallback.
+  const directMatches = sphericalMatchFeatures(leftFrame.sphericalFeatures || [], rightFrame.sphericalFeatures || [], {
+    ratio: 0.80,
+    reverseRatio: 0.84,
+    minConfidence: 0.13,
+  });
+  if (directMatches.length >= POSE_MIN_CORRESPONDENCES) {
+    return directMatches.slice(0, POSE_MAX_CORRESPONDENCES).map((match) => ({
+      leftBearing: [...match.left.bearing],
+      rightBearing: [...match.right.bearing],
+      quality: match.quality,
+      source: 'erp',
+    }));
+  }
+
   const correspondences = [];
   for (const leftView of leftFrame.views) {
     let best = null;
     for (const rightView of rightFrame.views) { const matches = poseMatchViews(leftView.features, rightView.features); if (!best || matches.length > best.matches.length) best = { matches, rightView }; }
     if (!best || best.matches.length < 3) continue;
-    for (const match of best.matches) correspondences.push({ leftBearing: poseBearingFromViewPoint(match.leftX, match.leftY, leftView.yaw), rightBearing: poseBearingFromViewPoint(match.rightX, match.rightY, best.rightView.yaw), quality: match.distance });
+    for (const match of best.matches) correspondences.push({ leftBearing: poseBearingFromViewPoint(match.leftX, match.leftY, leftView.yaw), rightBearing: poseBearingFromViewPoint(match.rightX, match.rightY, best.rightView.yaw), quality: match.distance, source: 'perspective-fallback' });
   }
   return correspondences;
 }
 
 async function poseBuildFrame(time, maps) {
   const panorama = await poseCapturePanorama(time);
-  return { time, views: maps.map((map, index) => ({ yaw: POSE_VIEW_YAWS[index], features: poseDetectFeatures(poseProjectPerspective(panorama, map)) })) };
+  const sphericalFeatures = sphericalDetectFeatures(panorama, POSE_EQ_WIDTH, POSE_EQ_HEIGHT, {
+    maxFeatures: 300,
+    scanStep: 4,
+    minResponse: 850,
+    minStd: 6.5,
+    minAngleDeg: 1.8,
+    maxLatitudeDeg: 80,
+  });
+  return {
+    time,
+    sphericalFeatures,
+    views: maps.map((map, index) => ({ yaw: POSE_VIEW_YAWS[index], features: poseDetectFeatures(poseProjectPerspective(panorama, map)) })),
+  };
 }
 
 function posePlan(duration) {
@@ -545,7 +576,8 @@ function posePairSeed(leftTime, rightTime, count) {
 
 function poseEstimatePair(leftFrame, rightFrame) {
   const correspondences = poseCollectCorrespondences(leftFrame, rightFrame);
-  return { start: leftFrame.time, end: rightFrame.time, gap: rightFrame.time - leftFrame.time, correspondences: correspondences.length, ...poseEstimateRelative(correspondences, posePairSeed(leftFrame.time, rightFrame.time, correspondences.length)) };
+  const erpCorrespondences = correspondences.filter((corr) => corr.source === 'erp').length;
+  return { start: leftFrame.time, end: rightFrame.time, gap: rightFrame.time - leftFrame.time, correspondences: correspondences.length, erpCorrespondences, geometrySource: erpCorrespondences ? 'direct-erp' : 'perspective-fallback', ...poseEstimateRelative(correspondences, posePairSeed(leftFrame.time, rightFrame.time, correspondences.length)) };
 }
 
 function poseChooseRefinement(pairs, minGap) {
@@ -620,14 +652,14 @@ async function poseRunAnalysis() {
   posePanel.hidden = false; poseFramesEl.textContent = '準備中'; posePairsEl.textContent = '—'; poseSolvedEl.textContent = '確認中'; poseInlierEl.textContent = '—'; poseParallaxEl.textContent = '—'; poseTimeline.replaceChildren(); poseMessage.hidden = true; document.querySelectorAll('.pose-scale-note').forEach((element) => element.remove());
   try {
     const plan = posePlan(duration), maps = poseGetPerspectiveMaps(), times = poseEvenTimes(duration, plan.initialCount), frames = [];
-    poseProgressText.textContent = '幾何学的な撮影位置を推定しています';
-    for (let index = 0; index < times.length; index += 1) { if (generation !== poseGeneration) return; frames.push(await poseBuildFrame(times[index], maps)); poseFramesEl.textContent = `${frames.length}枚`; poseProgressText.textContent = `撮影位置用の特徴点を準備しています (${index + 1}/${times.length})`; await new Promise((resolve) => window.setTimeout(resolve, 0)); }
+    poseProgressText.textContent = 'ERP全体から球面対応点を抽出し、撮影位置を推定しています';
+    for (let index = 0; index < times.length; index += 1) { if (generation !== poseGeneration) return; frames.push(await poseBuildFrame(times[index], maps)); poseFramesEl.textContent = `${frames.length}枚`; poseProgressText.textContent = `ERP球面特徴を準備しています (${index + 1}/${times.length})`; await new Promise((resolve) => window.setTimeout(resolve, 0)); }
     let pairs = [];
     for (let index = 0; index < frames.length - 1; index += 1) { if (generation !== poseGeneration) return; pairs.push(poseEstimatePair(frames[index], frames[index + 1])); posePairsEl.textContent = `${pairs.length}組`; poseProgressText.textContent = `相対カメラ姿勢を計算しています (${index + 1}/${frames.length - 1})`; await new Promise((resolve) => window.setTimeout(resolve, 0)); }
     let additions = 0;
     while (frames.length < plan.maxFrames) { if (generation !== poseGeneration) return; const target = poseChooseRefinement(pairs, plan.minGap); if (!target) break; const midpoint = (target.pair.start + target.pair.end) / 2, midFrame = await poseBuildFrame(midpoint, maps); frames.splice(target.index + 1, 0, midFrame); pairs.splice(target.index, 1, poseEstimatePair(frames[target.index], frames[target.index + 1]), poseEstimatePair(frames[target.index + 1], frames[target.index + 2])); additions += 1; poseFramesEl.textContent = `${frames.length}枚`; posePairsEl.textContent = `${pairs.length}組`; poseProgressText.textContent = `弱い区間を詳しく確認しています（自動追加 ${additions}枚）`; await new Promise((resolve) => window.setTimeout(resolve, 0)); }
     if (generation !== poseGeneration) return;
-    poseRenderResult(frames, pairs, duration); poseProgressText.textContent = '相対カメラ姿勢推定まで完了しました';
+    poseRenderResult(frames, pairs, duration); poseProgressText.textContent = 'ERP球面対応による相対カメラ姿勢推定まで完了しました';
   } catch (error) {
     if (generation !== poseGeneration) return;
     posePanel.hidden = false; poseMessage.hidden = false; poseMessage.className = 'message-box warning'; poseMessage.textContent = error?.message || '相対カメラ姿勢を推定できませんでした。'; poseProgressText.textContent = '撮影位置推定を完了できませんでした';

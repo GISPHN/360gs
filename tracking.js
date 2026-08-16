@@ -1,4 +1,5 @@
 import './tracking-ui.js';
+import { sphericalDetectFeatures } from './spherical.js?v=0.3c16';
 
 const trSourceVideo = document.querySelector('#source-video');
 const trProgressText = document.querySelector('#progress-text');
@@ -360,6 +361,7 @@ function trFilterFramesToTracks(frames, tracks) {
     time: frame.time,
     views: frame.views.map((view, viewIndex) => ({
       yaw: view.yaw,
+      spherical: !!view.spherical,
       features: view.features
         .filter((feature, featureIndex) => keys.has(`${frameIndex}:${viewIndex}:${featureIndex}`))
         .map((feature) => ({
@@ -368,7 +370,10 @@ function trFilterFramesToTracks(frames, tracks) {
           descriptor: feature.descriptor,
           response: Math.round(1000 + 9000 * Math.max(feature.baseConfidence || 0, feature.trackingConfidence || 0)),
           trackingConfidence: Math.max(feature.baseConfidence || 0, feature.trackingConfidence || 0),
+          baseConfidence: feature.baseConfidence,
           dir: feature.dir,
+          bearing: Array.isArray(feature.bearing) ? [...feature.bearing] : undefined,
+          spherical: !!feature.spherical,
         })),
     })),
   }));
@@ -377,16 +382,32 @@ function trFilterFramesToTracks(frames, tracks) {
 async function trBuildDenseFrames(source, viewSize, pass, generation) {
   const mapInfo = trMaps(viewSize);
   const frames = [];
+  const passCfg = trPassConfig(pass, viewSize);
   for (let frameIndex = 0; frameIndex < source.frames.length; frameIndex += 1) {
     if (generation !== trGeneration) return null;
     const time = source.frames[frameIndex].time;
     const pano = await trCapturePanorama(time, mapInfo.eqWidth, mapInfo.eqHeight);
-    const views = mapInfo.maps.map((map, viewIndex) => {
-      const gray = trProject(pano, map);
-      return { yaw: TR_VIEW_YAWS[viewIndex], dir: TR_VIEW_DIRS[viewIndex], features: trDetect(gray, viewSize, pass, TR_VIEW_DIRS[viewIndex]) };
+    const sphericalFeatures = sphericalDetectFeatures(pano, mapInfo.eqWidth, mapInfo.eqHeight, {
+      maxFeatures: Math.min(520, 340 + pass * 70),
+      scanStep: Math.max(4, Math.round(mapInfo.eqWidth / 210)),
+      minResponse: pass === 0 ? 820 : pass === 1 ? 590 : 430,
+      minStd: passCfg.minStd,
+      minAngleDeg: viewSize >= 300 ? 1.15 : viewSize >= 240 ? 1.45 : 1.85,
+      maxLatitudeDeg: 80,
     });
-    frames.push({ time, views });
-    if (trProgressText) trProgressText.textContent = `特徴点追跡を安定化しています（${frameIndex + 1}/${source.frames.length}）`;
+    let views;
+    if (sphericalFeatures.length >= 28) {
+      // One whole-sphere observation set per source frame prevents cubemap seam
+      // duplication while retaining directional labels for coverage diagnostics.
+      views = [{ yaw: 0, dir: 'erp', spherical: true, features: sphericalFeatures }];
+    } else {
+      views = mapInfo.maps.map((map, viewIndex) => {
+        const gray = trProject(pano, map);
+        return { yaw: TR_VIEW_YAWS[viewIndex], dir: TR_VIEW_DIRS[viewIndex], spherical: false, features: trDetect(gray, viewSize, pass, TR_VIEW_DIRS[viewIndex]) };
+      });
+    }
+    frames.push({ time, views, geometrySource: sphericalFeatures.length >= 28 ? 'direct-erp' : 'perspective-fallback' });
+    if (trProgressText) trProgressText.textContent = `ERP球面特徴を追跡しています（${frameIndex + 1}/${source.frames.length}）`;
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return frames;
@@ -444,7 +465,7 @@ async function trRun(detail) {
     window.dispatchEvent(new CustomEvent('360gs:tracking-summary', { detail: summaryDetail }));
     const enhancedDetail = { ...detail, usable: enhancedUsable, trackingStable: true, trackingSummary: summaryDetail };
     window.__360gsTrackedSfmResult = enhancedDetail;
-    if (trProgressText) trProgressText.textContent = '特徴点追跡を安定化し、全体最適化へ進みます';
+    if (trProgressText) trProgressText.textContent = 'ERP球面特徴の追跡を安定化し、角度BAへ進みます';
     window.dispatchEvent(new CustomEvent('360gs:sfm-ready', { detail: enhancedDetail }));
   } catch (error) {
     const summaryDetail = { results: [], good: [], candidates: [], trackCount: 0, observationCount: 0, error: error?.message || '特徴点追跡を完了できませんでした。' };

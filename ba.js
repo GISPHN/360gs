@@ -129,7 +129,10 @@ function baFlattenFrame(frame, frameIndex) {
       featureIndex,
       descriptor: feature.descriptor,
       response: feature.response || 0,
-      bearing: baBearing(feature.x, feature.y, view.yaw),
+      bearing: Array.isArray(feature.bearing) && feature.bearing.length === 3
+        ? baNormalize3(feature.bearing)
+        : baBearing(feature.x, feature.y, view.yaw),
+      spherical: !!feature.spherical,
     }));
   });
   return observations;
@@ -634,10 +637,10 @@ function baEnsurePanel() {
   panel.hidden = true;
   panel.innerHTML = `
     <div class="ba-heading"><div><p class="eyebrow">安定化した全体最適化</p><h3>悪化する更新を戻しながらカメラ姿勢と疎3D点を調整</h3></div><span class="ba-auto">自動設定</span></div>
-    <p class="ba-description">3フレーム以上で追跡できる特徴から明らかな外れ観測を先に除き、360°方向ベクトルの観測誤差を小さくするように最適化します。各反復後に全体のロバスト誤差・中央値・RMSを確認し、悪化した更新は自動的に取り消します。</p>
+    <p class="ba-description">3フレーム以上で追跡できるERP球面特徴から明らかな外れ観測を先に除き、透視投影を介さない360°bearingの角度誤差を小さくするように最適化します。ERP特徴が不足した場合のみ従来観測を使用します。各反復後に全体のロバスト誤差・中央値・RMSを確認し、悪化した更新は自動的に取り消します。</p>
     <div class="ba-stats"><div><span>最適化した区間</span><strong id="ba-count">—</strong></div><div><span>良好</span><strong id="ba-good">—</strong></div><div><span>複数視点トラック</span><strong id="ba-tracks">—</strong></div><div><span>観測点</span><strong id="ba-observations">—</strong></div></div>
     <div id="ba-list" class="ba-list"></div><div id="ba-message" class="message-box" hidden></div>
-    <p class="ba-note">これはブラウザ向けの小規模・ロバストなBundle Adjustmentです。絶対距離スケールは引き続き未確定です。改善しない場合は、結果を良く見せるために無理に更新せず、最適化前へ戻します。</p>`;
+    <p class="ba-note">これはブラウザ向けの小規模・ロバストな球面Bundle Adjustmentです。絶対距離スケールは引き続き未確定です。改善しない場合は、結果を良く見せるために無理に更新せず、最適化前へ戻します。</p>`;
   sfmPanel.insertAdjacentElement('afterend', panel);
   return panel;
 }
