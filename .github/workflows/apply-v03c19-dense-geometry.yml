@@ -1,0 +1,108 @@
+name: Apply v0.3c19 dense spherical geometry and guarded depth
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c19-dense-geometry-depth-prior
+    paths:
+      - 'geometry-seed.js'
+      - 'depth-prior.js'
+      - 'tools/patch_v03c19.py'
+      - '.github/workflows/apply-v03c19-dense-geometry.yml'
+
+concurrency:
+  group: v03c19-dense-geometry-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply c19 patch
+        run: python tools/patch_v03c19.py
+
+      - name: Check JavaScript and Python syntax
+        run: |
+          node --check geometry-seed.js
+          node --check depth-prior.js
+          node --check training.js
+          node --check spherical.js
+          node --check ba.js
+          node --check sfm.js
+          node --check dataset.js
+          python -m py_compile tools/patch_v03c19.py
+
+      - name: Verify c19 implementation markers
+        run: |
+          set -euo pipefail
+          grep -Fq "GS_MAX_FEATURES = 1100" geometry-seed.js
+          grep -Fq "GS_PAIR_STEPS = [1, 2, 3]" geometry-seed.js
+          grep -Fq "epipolarErrorDeg" geometry-seed.js
+          grep -Fq "thirdViewSupport" geometry-seed.js
+          grep -Fq "@huggingface/transformers@4.2.0" depth-prior.js
+          grep -Fq "depth-anything-v2-small-ONNX" depth-prior.js
+          grep -Fq "CROSS_VIEW_REL" depth-prior.js
+          grep -Fq "buildGuardedDepthPriorSeeds" training.js
+          grep -Fq "surface-aware seeds" training.js
+          grep -Fq "trusted.length<160" training.js
+          grep -Fq "randomDepthSeeds:0" training.js
+          grep -Fq "Prototype v0.3c19" index.html
+          grep -Fq "Prototype v0.3c19" video.html
+          grep -Fq "training.js?v=0.3c19" video.html
+          grep -Fq "brush_js_bg.wasm?v=0.3c19" training.js
+
+      - name: Test spherical epipolar and triangulation math
+        run: |
+          node <<'NODE'
+          const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+          const norm=v=>Math.hypot(...v), unit=v=>{const n=norm(v);return v.map(x=>x/n)};
+          const sub=(a,b)=>a.map((x,i)=>x-b[i]), add=(a,b)=>a.map((x,i)=>x+b[i]), scale=(v,s)=>v.map(x=>x*s);
+          const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+          const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+          const epi=(d1,d2,B)=>{const n=cross(d1,unit(B)),nn=norm(n);return Math.asin(clamp(Math.abs(dot(scale(n,1/nn),d2)),-1,1))*180/Math.PI};
+          const tri=(C1,d1,C2,d2)=>{const b=dot(d1,d2),w0=sub(C1,C2),d=dot(d1,w0),e=dot(d2,w0),den=1-b*b;if(den<1e-7)return null;const s=(b*e-d)/den,t=(e-b*d)/den;if(!(s>0&&t>0))return null;const p1=add(C1,scale(d1,s)),p2=add(C2,scale(d2,t));return scale(add(p1,p2),.5)};
+          const C1=[0,0,0],C2=[1,.05,.02],P=[.4,-.25,4.2],d1=unit(sub(P,C1)),d2=unit(sub(P,C2));
+          if(epi(d1,d2,sub(C2,C1))>1e-5)throw new Error('spherical epipolar constraint failed');
+          const got=tri(C1,d1,C2,d2);if(!got||norm(sub(got,P))>1e-5)throw new Error('triangulation failed');
+          const wrong=unit([d2[0],d2[1]+.15,d2[2]]);if(epi(d1,wrong,sub(C2,C1))<.5)throw new Error('epipolar rejection is too permissive');
+          console.log('c19 spherical geometry tests passed');
+          NODE
+
+      - name: Test robust relative-depth alignment math
+        run: |
+          node <<'NODE'
+          const fit=(samples)=>{let sx=0,sy=0,sxx=0,sxy=0,n=0;for(const [x,y] of samples){sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;n++;}const den=n*sxx-sx*sx;return{a:(n*sxy-sx*sy)/den,b:(sy-(n*sxy-sx*sy)/den*sx)/n}};
+          const samples=[];for(let i=1;i<=12;i++){const x=.3+i*.07,y=2.4*x+.8;samples.push([x,y]);}
+          const f=fit(samples);if(Math.abs(f.a-2.4)>1e-8||Math.abs(f.b-.8)>1e-8)throw new Error('depth affine alignment failed');
+          console.log('c19 depth alignment test passed');
+          NODE
+
+      - name: Verify Brush runtime is intentionally unchanged
+        run: |
+          test -s vendor/brush-js/brush_js_bg.wasm
+          grep -Fq "GPU-only bounded Gaussian growth" vendor/brush-js/BUILD_INFO.txt
+
+      - name: Commit generated c19 frontend
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training.js index.html video.html BUILD_VERSION.txt
+          if git diff --cached --quiet; then
+            echo "c19 generated frontend unchanged"
+          else
+            git commit -m "Apply v0.3c19 dense spherical geometry and guarded depth"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
