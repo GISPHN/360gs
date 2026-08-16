@@ -553,5 +553,5 @@ function trDatasetReady(ev){const p=trPanel();if(!p)return;p.hidden=false;p.quer
 window.addEventListener('360gs:dataset-ready',trDatasetReady);
 trVideo?.addEventListener('loadedmetadata',()=>{trRunId++;trCancelled=true;try{trTraining?.free();}catch{}trTraining=null;trRunning=false;const p=document.querySelector('#train-panel');if(p)p.hidden=true;window.__360gsTrainingResult=null;});
 if(window.__360gsDatasetResult?.ready)setTimeout(()=>trDatasetReady({detail:window.__360gsDatasetResult}),500);
-document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c2');
+document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v0.3c3');
 const trHero=document.querySelector('.video-hero .eyebrow');if(trHero)trHero.textContent='Step 10 / Brush WebGPU 3DGS学習';
