@@ -1,11 +1,10 @@
 Brush JavaScript/WebAssembly runtime.
 Built from ArthurBrussee/brush compatibility commit 3b80985709e2ec04fd6c8622a40e36473647a8e0.
-360GS extension: v0.3c21 direct differentiable equirectangular camera model.
-Projection uses longitude/latitude ERP coordinates with analytic Jacobian and analytic projection VJP.
-Radial range is used for full-sphere depth ordering.
-Training uses two complementary direct ERP seam variants per original source position, not cubemap faces.
-Spherical-area and seam weights are supplied through Brush mask alpha.
-Direct ERP long-edge training cap is device-adaptive up to 1536 px to retain angular detail.
-c20 spherical geometry, post-triangulation pose refinement, SH1 and browser-safe GPU-only growth are retained.
+360GS extension: v0.3c22 direct differentiable equirectangular camera plus effective-rank Gaussian shape regularization.
+c21 ERP projection, analytic Jacobian/VJP, radial depth ordering and complementary seam weighting are retained unchanged.
+Effective rank uses covariance eigenvalues s^2 and penalizes rank-1 needle-like Gaussians after 25 percent of browser training.
+Regularization ramps to weight 0.02; no smallest-axis thinning term is added because the Mip-Splatting scale floor remains active.
+Frontend diagnostics report effective rank and max-to-middle scale ratio so flat disks are distinguished from needles.
+SH1, c20/c21 spherical geometry, post-triangulation pose refinement and browser-safe GPU-only growth are retained.
 wasm-opt disabled in CI because --converge exceeded hosted-runner time limits.
-Brush is licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
+Brush is licensed under Apache-2.0. Effective-rank method attribution is documented in README/BUILD_VERSION.

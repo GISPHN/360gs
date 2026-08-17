@@ -1,12 +1,11 @@
-360GS v0.3c21
-Direct differentiable equirectangular Gaussian projection in Brush/WebGPU
-c20 spherical geometry and post-triangulation camera pose refinement are retained unchanged
-Six-face cubemap training is replaced by two complementary direct ERP views per source position (native + 180-degree roll)
-A spherical-area alpha mask (cos latitude) and seam taper provide weighted photometric supervision while avoiding rectangular-tile seam gradients
-Brush adds an Equirectangular camera model with analytic projection Jacobian and analytic covariance/mean VJP; ERP depth sorting uses radial range
-Tiny polar caps are excluded from rasterization where longitude is mathematically singular; their spherical area weight is near zero
-ERP source width is 1024-2048 px and Brush uses an adaptive 768/1024/1536 px long-edge cap so direct ERP is not unfairly downsampled against the former 512 px per-face cubemap
-Complementary seam weights sum exactly to cos(latitude) across the native and 180-degree ERP pair, preventing longitude-dependent double weighting
-SH degree 1, c20 trusted geometry, depth guards, Gaussian budget and browser-safe GPU-only growth remain controlled
-c20 baseline: 14,747 Gaussians; train 20.47 dB / 0.581; held-out 17.25 dB / 0.530; gap 3.23 dB; anisotropy p90 43.2x
+360GS v0.3c22
+Effective-rank Gaussian shape regularization after c21 direct ERP
+c21 direct equirectangular camera, complementary seam weighting, spherical geometry and post-triangulation pose refinement are retained unchanged
+NeurIPS 2024 effective rank is computed from normalized squared Gaussian scales: q_i=s_i^2/sum(s^2), erank=exp(-sum(q_i log q_i))
+Needle penalty follows max(-log(erank-1+eps),0); disk-like erank~2 splats are not penalized by max/min anisotropy alone
+Browser schedule starts at 25% of training and ramps to conservative weight 0.02 over the next 25%
+The paper's optional smallest-axis thinning term is omitted so c22 isolates needle suppression and does not fight the existing Mip-Splatting scale floor
+Frontend diagnostics now report effective-rank p10/median/p90 plus max-axis/middle-axis p90, separating needles from legitimate flat disks
+All c21 Gaussian count, SH degree, ERP resolution, seed budget, depth guards and browser-safe GPU-only growth remain controlled
+c21 baseline: 14,747 Gaussians; train 21.49 dB / 0.640; held-out 20.80 dB / 0.619; gap 0.68 dB; max/min anisotropy p90 243.4x
 Build date: 2026-08-17
