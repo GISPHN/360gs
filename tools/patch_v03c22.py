@@ -54,12 +54,11 @@ const ERANK_EPS: f32 = 1.0e-5;
     'effective-rank constants',
 )
 
-old = '''            // Strip the autodiff graph off the loss so consumers can read the
-            // scalar later without keeping the backward pass alive.
-            let loss_inner = loss.clone().inner();
-            let mut grads = splats.bwd_validate(loss).await;
-'''
-new = '''            // c22 effective-rank regularization. Covariance eigenvalues are
+# patch_v03b9 inserts diagnostic stage 145 immediately before the backward
+# loss snapshot. Insert c22 before that stable post-c21 anchor so the full
+# historical browser patch chain remains reproducible.
+anchor = '            set_training_diag_stage(145);\n'
+insert = '''            // c22 effective-rank regularization. Covariance eigenvalues are
             // proportional to s^2; rotation does not change them, so no SVD is
             // needed. This directly implements the differentiable entropy-rank
             // statistic from Hyung et al. while remaining WebGPU friendly.
@@ -83,16 +82,13 @@ new = '''            // c22 effective-rank regularization. Covariance eigenvalue
                         .log())
                         .clamp_min(0.0)
                         .mean();
-                    loss = loss + needle_penalty * weight;
+                    loss = loss + needle_penalty.mul_scalar(weight);
                 }
             }
 
-            // Strip the autodiff graph off the loss so consumers can read the
-            // scalar later without keeping the backward pass alive.
-            let loss_inner = loss.clone().inner();
-            let mut grads = splats.bwd_validate(loss).await;
+            set_training_diag_stage(145);
 '''
-s = replace_once(s, old, new, 'effective-rank loss injection')
+s = replace_once(s, anchor, insert, 'effective-rank loss injection')
 p.write_text(s)
 
 
@@ -160,8 +156,6 @@ for name in ['index.html','video.html']:
 
 p=Path('README.md')
 x=p.read_text().replace('v0.3c21','v0.3c22').replace('0.3c21','0.3c22')
-marker='## '
-# Avoid brittle section insertion; append an explicit experiment note once.
 if 'c22 effective-rank' not in x:
     x += '''\n\n### c22 effective-rank Gaussian shape regularization\n\nv0.3c22 keeps the c21 direct equirectangular camera, spherical geometry, post-triangulation pose refinement, SH1, seed budget and browser training resolution fixed. It adds a conservative effective-rank regularizer based on Hyung et al. (NeurIPS 2024) to suppress rank-1 / needle-like Gaussians while preserving disk-like surface splats. The regularizer starts after 25% of training and ramps to weight 0.02 over the next 25%. The optional smallest-axis thinning term from the paper is intentionally omitted because 360GS already applies a Mip-Splatting 3D scale floor.\n'''
 p.write_text(x)
