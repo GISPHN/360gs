@@ -148,3 +148,8 @@ Brushランタイムは`.github/workflows/build-brush-js.yml`で固定コミッ�
 - browser-side Gaussian Splatting PLY export
 
 第三者ライブラリの情報は`THIRD_PARTY_NOTICES.md`を参照してください。
+
+
+### c22 effective-rank Gaussian shape regularization
+
+v0.3c22 keeps the c21 direct equirectangular camera, spherical geometry, post-triangulation pose refinement, SH1, seed budget and browser training resolution fixed. It adds a conservative effective-rank regularizer based on Hyung et al. (NeurIPS 2024) to suppress rank-1 / needle-like Gaussians while preserving disk-like surface splats. The regularizer starts after 25% of training and ramps to weight 0.02 over the next 25%. The optional smallest-axis thinning term from the paper is intentionally omitted because 360GS already applies a Mip-Splatting 3D scale floor.
