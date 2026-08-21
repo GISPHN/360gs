@@ -6,6 +6,11 @@ on:
       - v03c25-webgl-camera-component
     paths:
       - '.github/workflows/apply-v03c25-viewer.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-v03c25-viewer.yml'
   workflow_dispatch:
 
 permissions:
