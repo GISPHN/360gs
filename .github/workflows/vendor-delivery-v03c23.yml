@@ -1,0 +1,82 @@
+name: Vendor c23 SPZ and WebGL viewer assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v03c23-gauzilla-delivery
+    paths:
+      - '.github/workflows/vendor-delivery-v03c23.yml'
+
+concurrency:
+  group: vendor-delivery-v03c23-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout 360GS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Vendor official SPZ WASM package
+        run: |
+          rm -rf _npm vendor/spz
+          mkdir -p _npm vendor/spz
+          cd _npm
+          npm init -y >/dev/null 2>&1
+          npm install --ignore-scripts --no-audit --no-fund @adobe/spz@0.2.2
+          cd ..
+          cp -R _npm/node_modules/@adobe/spz/. vendor/spz/
+          rm -rf vendor/spz/node_modules
+          echo 'Vendored @adobe/spz files:'
+          find vendor/spz -maxdepth 3 -type f -print | sort
+
+      - name: Vendor PlayCanvas SPZ parser and ZSTD decoder
+        run: |
+          rm -rf _playcanvas vendor/playcanvas-spz
+          git clone --depth 1 --branch v2.21.2 https://github.com/playcanvas/engine.git _playcanvas
+          mkdir -p vendor/playcanvas-spz
+          cp _playcanvas/scripts/esm/parsers/spz-parser.mjs vendor/playcanvas-spz/spz-parser.mjs
+          cp _playcanvas/examples/assets/wasm/zstd/zstd.wasm.js vendor/playcanvas-spz/zstd.wasm.js
+          cp _playcanvas/examples/assets/wasm/zstd/zstd.wasm.wasm vendor/playcanvas-spz/zstd.wasm.wasm
+          cat > vendor/playcanvas-spz/BUILD_INFO.txt <<'EOF'
+          PlayCanvas Gaussian Splat SPZ support assets.
+          Source: playcanvas/engine tag v2.21.2.
+          spz-parser.mjs: PlayCanvas external SPZ v4 parser.
+          zstd.wasm.js / zstd.wasm.wasm: Zstandard decompressor assets used by the parser.
+          See THIRD_PARTY_NOTICES.md for licenses and provenance.
+          EOF
+
+      - name: Write SPZ vendor build info
+        run: |
+          cat > vendor/spz/360GS_BUILD_INFO.txt <<'EOF'
+          360GS vendored browser SPZ encoder/decoder.
+          Package: @adobe/spz 0.2.2.
+          Upstream: nianticlabs/spz.
+          Purpose: local browser conversion of generated Gaussian data to SPZ v4.
+          No user splat/image data is sent to npm or any conversion server at runtime.
+          EOF
+
+      - name: Commit vendored runtime
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vendor/spz vendor/playcanvas-spz
+          if git diff --cached --quiet; then
+            echo 'Vendor assets unchanged.'
+          else
+            git commit -m 'Vendor c23 SPZ and WebGL viewer runtimes'
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
