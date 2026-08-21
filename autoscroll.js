@@ -1,3 +1,5 @@
+import './delivery-ui.js?v=0.3c23';
+
 const AUTO_SCROLL_STORAGE_KEY = '360gs-auto-scroll';
 const AUTO_SCROLL_TARGET_IDS = [
   'analysis-panel',

@@ -1,0 +1,3 @@
+PlayCanvas browser runtime used by the 360GS viewer.
+Package: playcanvas 2.21.2.
+The c23 standalone viewer explicitly selects WebGL2 so viewing does not require WebGPU.

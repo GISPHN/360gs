@@ -9,6 +9,22 @@ on:
       - '*.html'
       - '*.css'
       - 'BUILD_VERSION.txt'
+      - 'tools/test_delivery_v03c23.mjs'
+      - 'vendor/spz/**'
+      - 'vendor/playcanvas/**'
+      - 'vendor/playcanvas-spz/**'
+      - '.github/workflows/validate-web.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '*.js'
+      - '*.html'
+      - '*.css'
+      - 'BUILD_VERSION.txt'
+      - 'tools/test_delivery_v03c23.mjs'
+      - 'vendor/spz/**'
+      - 'vendor/playcanvas/**'
+      - 'vendor/playcanvas-spz/**'
       - '.github/workflows/validate-web.yml'
 
 permissions:
@@ -25,12 +41,14 @@ jobs:
 
       - name: Check JavaScript syntax
         run: |
+          set -euo pipefail
           for file in *.js; do
             echo "Checking $file"
             node --check "$file"
           done
+          node --check tools/test_delivery_v03c23.mjs
 
-      - name: Verify current training assets and cache keys
+      - name: Verify current app and training assets
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +57,8 @@ jobs:
           test -f training.css
           test -f video.html
           test -f index.html
+          test -f viewer.html
+          test -f delivery-ui.js
 
           version="$(sed -n '1s/^360GS v//p' BUILD_VERSION.txt)"
           if [[ -z "$version" ]]; then
@@ -47,18 +67,36 @@ jobs:
           fi
           echo "Validating 360GS ${version}"
 
-          grep -Fq "training.js?v=${version}" video.html
-          grep -Fq "training.css?v=${version}" video.html
-          grep -Fq "Prototype v${version}" video.html
           grep -Fq "Prototype v${version}" index.html
-          grep -Fq "document.querySelectorAll('.version').forEach(n=>n.textContent='Prototype v${version}')" training.js
-          grep -Fq "brush_js_bg.wasm?v=${version}" training.js
+          grep -Fq "Prototype v${version}" video.html
+          grep -Fq "Prototype v${version}" viewer.html
+          grep -Fq "Prototype v${version}" delivery-ui.js
+          grep -Fq "delivery-ui.js?v=${version}" video.html
+          grep -Fq "SPZ v4を保存" delivery-ui.js
+          grep -Fq "WebGLビューア" delivery-ui.js
+          grep -Fq "encodePlyToSpzV4" delivery-ui.js
+          grep -Fq "DEVICETYPE_WEBGL2" viewer.js
+          grep -Fq "SpzParser" viewer.js
+          grep -Fq "saveSpzToBuffer" delivery.js
+          grep -Fq "CoordinateSystem.RDF" delivery.js
           grep -Fq "'train-panel'" autoscroll.js
 
-      - name: Verify generated Brush runtime
+          # v0.3c23 is intentionally a delivery-only release. The validated
+          # v0.3c22 Brush training code and WASM cache key may remain unchanged.
+          grep -Eq "brush_js_bg\\.wasm\\?v=0\\.3c[0-9]+" training.js
+
+      - name: Verify generated Brush and delivery runtimes
         shell: bash
         run: |
           set -euo pipefail
           test -s vendor/brush-js/brush_js.js
           test -s vendor/brush-js/brush_js_bg.wasm
           test -s vendor/brush-js/BUILD_INFO.txt
+          test -s vendor/spz/dist/spz.js
+          test -s vendor/playcanvas/playcanvas.mjs
+          test -s vendor/playcanvas-spz/spz-parser.mjs
+          test -s vendor/playcanvas-spz/zstd.wasm.js
+          test -s vendor/playcanvas-spz/zstd.wasm.wasm
+
+      - name: Smoke test production PLY to SPZ v4 conversion and viewpoint serialization
+        run: node tools/test_delivery_v03c23.mjs

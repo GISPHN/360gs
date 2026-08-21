@@ -1,11 +1,11 @@
-360GS v0.3c22
-Effective-rank Gaussian shape regularization after c21 direct ERP
-c21 direct equirectangular camera, complementary seam weighting, spherical geometry and post-triangulation pose refinement are retained unchanged
-NeurIPS 2024 effective rank is computed from normalized squared Gaussian scales: q_i=s_i^2/sum(s^2), erank=exp(-sum(q_i log q_i))
-Needle penalty follows max(-log(erank-1+eps),0); disk-like erank~2 splats are not penalized by max/min anisotropy alone
-Browser schedule starts at 25% of training and ramps to conservative weight 0.02 over the next 25%
-The paper's optional smallest-axis thinning term is omitted so c22 isolates needle suppression and does not fight the existing Mip-Splatting scale floor
-Frontend diagnostics now report effective-rank p10/median/p90 plus max-axis/middle-axis p90, separating needles from legitimate flat disks
-All c21 Gaussian count, SH degree, ERP resolution, seed budget, depth guards and browser-safe GPU-only growth remain controlled
-c21 baseline: 14,747 Gaussians; train 21.49 dB / 0.640; held-out 20.80 dB / 0.619; gap 0.68 dB; max/min anisotropy p90 243.4x
-Build date: 2026-08-17
+360GS v0.3c23
+Gauzilla-inspired browser delivery: SPZ v4 export, viewpoint URLs, and WebGL 2 fallback viewer
+Training baseline remains v0.3c22: direct ERP, spherical geometry, post-triangulation pose refinement, SH1 and effective-rank Gaussian regularization are unchanged
+Generated 3DGS PLY can be converted locally to SPZ v4 with the vendored @adobe/spz 0.2.2 WebAssembly encoder
+The SPZ encoder receives standard 3DGS RDF coordinates and converts them using the official coordinate-system implementation; PLY wxyz quaternions are reordered to SPZ xyzw
+The standalone viewer loads PLY or SPZ v4 with locally vendored PlayCanvas 2.21.2 and explicitly selects WebGL 2 so viewing does not require WebGPU
+SPZ v4 viewing uses PlayCanvas's external SPZ parser and vendored ZSTD decoder
+Viewer state stores yaw, pitch, scene-radius-normalized orbit distance, FOV and optional look position in the URL hash
+The generated-result panel gains SPZ v4 download and one-click WebGL viewer controls without changing the c22 Brush runtime
+Gauzilla is an architectural reference only; no Gauzilla source is copied
+Build date: 2026-08-21

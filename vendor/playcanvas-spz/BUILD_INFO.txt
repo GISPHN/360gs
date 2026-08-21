@@ -1,0 +1,5 @@
+PlayCanvas Gaussian Splat SPZ support assets.
+Source: playcanvas/engine tag v2.21.2.
+spz-parser.mjs: PlayCanvas external SPZ v4 parser.
+zstd.wasm.js / zstd.wasm.wasm: Zstandard decompressor assets used by the parser.
+See THIRD_PARTY_NOTICES.md for licenses and provenance.
