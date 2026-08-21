@@ -131,18 +131,85 @@ export function brushDataToSpzCloud(source, extensions = []) {
     }
   }
 
-  return {
-    numPoints: n,
-    shDegree: degree,
-    antialiased: false,
-    extensions,
-    positions,
-    scales,
-    rotations,
-    alphas,
-    colors,
-    sh
-  };
+  return { numPoints: n, shDegree: degree, antialiased: false, extensions, positions, scales, rotations, alphas, colors, sh };
+}
+
+const PLY_TYPE_SIZE = { char:1, uchar:1, int8:1, uint8:1, short:2, ushort:2, int16:2, uint16:2, int:4, uint:4, int32:4, uint32:4, float:4, float32:4, double:8, float64:8 };
+
+function readPlyScalar(view, offset, type) {
+  switch (type) {
+    case 'char': case 'int8': return view.getInt8(offset);
+    case 'uchar': case 'uint8': return view.getUint8(offset);
+    case 'short': case 'int16': return view.getInt16(offset, true);
+    case 'ushort': case 'uint16': return view.getUint16(offset, true);
+    case 'int': case 'int32': return view.getInt32(offset, true);
+    case 'uint': case 'uint32': return view.getUint32(offset, true);
+    case 'float': case 'float32': return view.getFloat32(offset, true);
+    case 'double': case 'float64': return view.getFloat64(offset, true);
+    default: throw new Error(`未対応のPLY型です: ${type}`);
+  }
+}
+
+export async function parseGaussianPly(blob) {
+  if (!(blob instanceof Blob)) throw new Error('PLY Blobを取得できません。');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const probeLength = Math.min(bytes.length, 256 * 1024);
+  const probe = new TextDecoder('utf-8').decode(bytes.subarray(0, probeLength));
+  const marker = 'end_header\n';
+  const markerIndex = probe.indexOf(marker);
+  if (markerIndex < 0) throw new Error('PLYヘッダーの終端を検出できません。');
+  const headerText = probe.slice(0, markerIndex + marker.length);
+  if (!/^ply\s/m.test(headerText) || !/format binary_little_endian 1\.0/.test(headerText)) throw new Error('binary little endian PLYのみSPZへ変換できます。');
+  const headerBytes = new TextEncoder().encode(headerText).byteLength;
+  const lines = headerText.split(/\r?\n/);
+  let vertexCount = 0;
+  let inVertex = false;
+  const props = [];
+  for (const line of lines) {
+    const parts = line.trim().split(/\s+/);
+    if (parts[0] === 'element') {
+      inVertex = parts[1] === 'vertex';
+      if (inVertex) vertexCount = Number(parts[2]);
+    } else if (inVertex && parts[0] === 'property') {
+      if (parts[1] === 'list') throw new Error('vertex list propertyを含むPLYには未対応です。');
+      const type = parts[1], name = parts[2];
+      const size = PLY_TYPE_SIZE[type];
+      if (!size) throw new Error(`未対応のPLY property型です: ${type}`);
+      props.push({ type, name, size });
+    }
+  }
+  if (!Number.isFinite(vertexCount) || vertexCount < 1 || !props.length) throw new Error('PLYのGaussian数またはpropertyを取得できません。');
+  let rowSize = 0;
+  const offsets = new Map();
+  for (const prop of props) { offsets.set(prop.name, { ...prop, offset: rowSize }); rowSize += prop.size; }
+  if (headerBytes + rowSize * vertexCount > bytes.byteLength) throw new Error('PLYバイナリ本体がヘッダー記載サイズより短いです。');
+  const required = ['x','y','z','f_dc_0','f_dc_1','f_dc_2','opacity','scale_0','scale_1','scale_2','rot_0','rot_1','rot_2','rot_3'];
+  for (const name of required) if (!offsets.has(name)) throw new Error(`3DGS PLY property ${name} がありません。`);
+  const restNames = props.map(p => p.name).filter(n => /^f_rest_\d+$/.test(n));
+  const shDim = restNames.length / 3;
+  if (!Number.isInteger(shDim) || ![0,3,8,15,24].includes(shDim)) throw new Error(`SH property数がSPZ仕様と一致しません (${restNames.length})。`);
+  const degree = shDim === 0 ? 0 : shDim === 3 ? 1 : shDim === 8 ? 2 : shDim === 15 ? 3 : 4;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const positions = new Float32Array(vertexCount * 3);
+  const scales = new Float32Array(vertexCount * 3);
+  const rotations = new Float32Array(vertexCount * 4);
+  const alphas = new Float32Array(vertexCount);
+  const colors = new Float32Array(vertexCount * 3);
+  const sh = new Float32Array(vertexCount * shDim * 3);
+  const get = (base, name) => { const p = offsets.get(name); return readPlyScalar(view, base + p.offset, p.type); };
+  for (let i = 0; i < vertexCount; i++) {
+    const base = headerBytes + i * rowSize;
+    positions.set([get(base,'x'),get(base,'y'),get(base,'z')], i * 3);
+    scales.set([get(base,'scale_0'),get(base,'scale_1'),get(base,'scale_2')], i * 3);
+    const qw=get(base,'rot_0'),qx=get(base,'rot_1'),qy=get(base,'rot_2'),qz=get(base,'rot_3'),qn=Math.hypot(qw,qx,qy,qz)||1;
+    rotations.set([qx/qn,qy/qn,qz/qn,qw/qn], i * 4);
+    alphas[i] = get(base,'opacity');
+    colors.set([get(base,'f_dc_0'),get(base,'f_dc_1'),get(base,'f_dc_2')], i * 3);
+    for (let ch = 0; ch < 3; ch++) for (let c = 0; c < shDim; c++) {
+      sh[(i * shDim + c) * 3 + ch] = get(base, `f_rest_${ch * shDim + c}`);
+    }
+  }
+  return { numPoints: vertexCount, shDegree: degree, antialiased: false, extensions: [], positions, scales, rotations, alphas, colors, sh };
 }
 
 let spzModulePromise = null;
@@ -157,7 +224,7 @@ async function getSpzModule() {
   return spzModulePromise;
 }
 
-export async function encodeSpzV4(source, { bounds = null } = {}) {
+async function encodeCloudSpzV4(cloud, { bounds = null } = {}) {
   const mod = await getSpzModule();
   const extensions = [];
   if (typeof mod.SpzHasExtensionSupport === 'function' && mod.SpzHasExtensionSupport() && mod.SpzExtensionSafeOrbitCameraAdobe) {
@@ -167,17 +234,11 @@ export async function encodeSpzV4(source, { bounds = null } = {}) {
       safe.safeOrbitElevationMax = 1.45;
       safe.safeOrbitRadiusMin = Math.max(1e-5, Number(bounds?.radius || 1) * 0.08);
       extensions.push(safe);
-    } catch {
-      // The SPZ file remains valid without optional extensions.
-    }
+    } catch {}
   }
-
-  const cloud = brushDataToSpzCloud(source, extensions);
-  const version = Math.max(4, Number(mod.LATEST_SPZ_HEADER_VERSION || 4));
+  cloud.extensions = extensions;
   const bytes = mod.saveSpzToBuffer(cloud, {
-    version,
-    // Brush/standard 3DGS PLY camera data are Right-Down-Front.
-    // SPZ internally converts this to its canonical storage coordinates.
+    version: 4,
     from: mod.CoordinateSystem.RDF,
     sh1Bits: 5,
     shRestBits: 4
@@ -186,6 +247,15 @@ export async function encodeSpzV4(source, { bounds = null } = {}) {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (u8.byteLength < 8 || String.fromCharCode(...u8.subarray(0, 4)) !== 'NGSP') throw new Error('生成したSPZヘッダーを検証できません。');
   const fileVersion = new DataView(u8.buffer, u8.byteOffset, u8.byteLength).getUint32(4, true);
-  if (fileVersion < 4) throw new Error(`SPZ v4ではない出力が生成されました（version ${fileVersion}）。`);
+  if (fileVersion !== 4) throw new Error(`SPZ v4ではない出力が生成されました（version ${fileVersion}）。`);
   return new Blob([u8], { type: 'application/octet-stream' });
+}
+
+export async function encodeSpzV4(source, options = {}) {
+  return encodeCloudSpzV4(brushDataToSpzCloud(source), options);
+}
+
+export async function encodePlyToSpzV4(blob, options = {}) {
+  const cloud = await parseGaussianPly(blob);
+  return encodeCloudSpzV4(cloud, options);
 }
