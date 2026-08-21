@@ -1,0 +1,100 @@
+name: Apply v0.3c25 WebGL viewer camera fix
+
+on:
+  push:
+    branches:
+      - v03c25-webgl-camera-component
+    paths:
+      - '.github/workflows/apply-v03c25-viewer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply viewer camera ownership fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('viewer.js')
+          s=p.read_text()
+          s=s.replace("./delivery.js?v=0.3c23", "./delivery.js?v=0.3c25")
+          old="""let device;\nlet app;\nlet entity = null;"""
+          new="""let device;\nlet app;\nlet camera = null;\nlet cameraComponent = null;\nlet entity = null;"""
+          if old not in s: raise SystemExit('viewer app state anchor missing')
+          s=s.replace(old,new,1)
+          old="""const camera = new pc.Entity('Camera');\n\nfunction direction()"""
+          new="""function requireCameraComponent() {\n  if (!camera || !cameraComponent) {\n    throw new Error('WebGL viewer camera component is not initialized.');\n  }\n  return cameraComponent;\n}\n\nfunction direction()"""
+          if old not in s: raise SystemExit('viewer camera declaration anchor missing')
+          s=s.replace(old,new,1)
+          old="""function setClips() {\n  camera.camera.nearClip = Math.max(radius * 0.00002, 0.00001);\n  camera.camera.farClip = Math.max(radius * 100, distance + radius * 20, 100);\n}"""
+          new="""function setClips() {\n  const component = requireCameraComponent();\n  component.nearClip = Math.max(radius * 0.00002, 0.00001);\n  component.farClip = Math.max(radius * 100, distance + radius * 20, 100);\n}"""
+          if old not in s: raise SystemExit('viewer setClips anchor missing')
+          s=s.replace(old,new,1)
+          s=s.replace("camera.camera.fov = clamp(fov, 20, 110);", "requireCameraComponent().fov = clamp(fov, 20, 110);")
+          s=s.replace("camera.camera.fov = 55;", "requireCameraComponent().fov = 55;")
+          old="""    camera.addComponent('camera', {\n      clearColor: new pc.Color(0.07, 0.08, 0.10),\n      fov: 55,\n      nearClip: 0.0001,\n      farClip: 100000\n    });\n    app.root.addChild(camera);"""
+          new="""    // AppBase is constructed manually in this viewer. Bind the Entity to that\n    // exact application instead of relying on PlayCanvas' global current-app lookup.\n    camera = new pc.Entity('Camera', app);\n    cameraComponent = camera.addComponent('camera', {\n      clearColor: new pc.Color(0.07, 0.08, 0.10),\n      fov: 55,\n      nearClip: 0.0001,\n      farClip: 100000\n    });\n    if (!cameraComponent) throw new Error('CameraComponentを初期化できません。');\n    app.root.addChild(camera);"""
+          if old not in s: raise SystemExit('viewer init camera anchor missing')
+          s=s.replace(old,new,1)
+          old="""    entity = new pc.Entity('3DGS');\n    entity.addComponent('gsplat', { asset });\n    app.root.addChild(entity);"""
+          new="""    entity = new pc.Entity('3DGS', app);\n    const gsplatComponent = entity.addComponent('gsplat', { asset });\n    if (!gsplatComponent) throw new Error('GSplatComponentを初期化できません。');\n    app.root.addChild(entity);"""
+          if old not in s: raise SystemExit('viewer gsplat entity anchor missing')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          # Keep the public app version coherent without changing training mathematics.
+          for name in ['index.html','video.html','viewer.html','delivery-ui.js']:
+              q=Path(name)
+              text=q.read_text().replace('0.3c24','0.3c25')
+              # delivery-ui still carried a few c23 delivery-only URLs before c24.
+              text=text.replace('0.3c23','0.3c25')
+              q.write_text(text)
+
+          Path('BUILD_VERSION.txt').write_text('''360GS v0.3c25\nWebGL 2 viewer camera-component ownership fix for PLY / SPZ v4 loading\nTraining baseline remains v0.3c22: direct ERP, spherical geometry, post-triangulation pose refinement, SH1 and effective-rank Gaussian regularization are unchanged\nSPZ v4 encoder and decoder behavior remain unchanged from v0.3c23\nStandalone PlayCanvas AppBase viewer now creates Camera and GSplat entities with the active application explicitly supplied\nCameraComponent returned by addComponent is retained and used directly for FOV and clipping-plane updates; viewer no longer relies on an implicit entity.camera accessor\nThis fixes the reported SPZ post-load error: Cannot set properties of undefined (setting fov)\nBrush runtime reliability wrapper from v0.3c24 remains unchanged\nBuild date: 2026-08-21\n''')
+
+          wf=Path('.github/workflows/validate-web.yml')
+          t=wf.read_text()
+          marker="          grep -Fq \"SpzParser\" viewer.js\n"
+          extra="""          grep -Fq \"SpzParser\" viewer.js\n          grep -Fq \"new pc.Entity('Camera', app)\" viewer.js\n          grep -Fq \"cameraComponent = camera.addComponent('camera'\" viewer.js\n          grep -Fq \"new pc.Entity('3DGS', app)\" viewer.js\n          if grep -Fq \"camera.camera.fov\" viewer.js; then\n            echo \"Implicit camera.camera FOV access must not return in c25\" >&2\n            exit 1\n          fi\n"""
+          if marker not in t: raise SystemExit('validate workflow viewer anchor missing')
+          t=t.replace(marker,extra,1)
+          wf.write_text(t)
+          PY
+
+      - name: Validate c25 viewer fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check viewer.js
+          node --check delivery-ui.js
+          grep -Fq "new pc.Entity('Camera', app)" viewer.js
+          grep -Fq "cameraComponent = camera.addComponent('camera'" viewer.js
+          grep -Fq "new pc.Entity('3DGS', app)" viewer.js
+          ! grep -Fq "camera.camera.fov" viewer.js
+          grep -Fq "Prototype v0.3c25" viewer.html
+          grep -Fq "360GS v0.3c25" BUILD_VERSION.txt
+          node tools/test_delivery_v03c23.mjs
+
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/apply-v03c25-viewer.yml
+          git add viewer.js index.html video.html viewer.html delivery-ui.js BUILD_VERSION.txt .github/workflows/validate-web.yml
+          git commit -m 'Fix WebGL viewer camera ownership in v0.3c25'
+          git push origin HEAD:v03c25-webgl-camera-component
