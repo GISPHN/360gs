@@ -96,21 +96,18 @@ export default async function initBrushRuntime(moduleOrPath) {
     wasmUrl.searchParams.set('v', BRUSH_RUNTIME_VERSION);
   }
 
-  let wasmResponse = await fetchWithRetry(wasmUrl, 'Brush WebAssembly');
+  // Network/HTTP failures are retried by fetchWithRetry before wasm-bindgen
+  // sees the response. Do not call wasm-bindgen init twice after an execution
+  // failure: the generated module may already hold partially initialized state.
+  const wasmResponse = await fetchWithRetry(wasmUrl, 'Brush WebAssembly');
   const contentType = wasmResponse.headers.get('Content-Type') || 'unknown';
   const contentLength = Number(wasmResponse.headers.get('Content-Length'));
   console.info(`[360GS] Brush WASM HTTP ${wasmResponse.status} / ${contentType}${Number.isFinite(contentLength) ? ` / ${(contentLength / 1024 / 1024).toFixed(1)} MB` : ''}`);
 
   try {
     await core.default({ module_or_path: wasmResponse });
-  } catch (firstError) {
-    console.warn('[360GS] Brush WebAssembly initialization failed; one reload retry will be attempted.', firstError);
-    wasmResponse = await fetchWithRetry(wasmUrl, 'Brush WebAssembly retry', { reload: true });
-    try {
-      await core.default({ module_or_path: wasmResponse });
-    } catch (secondError) {
-      throw new Error(`Brush WebAssembly initialization failed after retry: ${errorText(secondError)}`);
-    }
+  } catch (error) {
+    throw new Error(`Brush WebAssembly initialization failed: ${errorText(error)}`);
   }
 
   BrushApp = core.BrushApp;
