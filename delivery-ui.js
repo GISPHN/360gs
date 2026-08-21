@@ -1,9 +1,9 @@
-import { encodePlyToSpzV4, buildViewerUrl } from './delivery.js?v=0.3c23';
+import { encodePlyToSpzV4, buildViewerUrl } from './delivery.js?v=0.3c25';
 
 const previewUrls = [];
 
 function setVersion() {
-  document.querySelectorAll('.version').forEach(n => n.textContent = 'Prototype v0.3c24');
+  document.querySelectorAll('.version').forEach(n => n.textContent = 'Prototype v0.3c25');
 }
 
 function notify(text, kind = 'success') {
@@ -31,7 +31,7 @@ function addViewerEntry() {
   const a = document.createElement('a');
   a.dataset.c24Viewer = '1';
   a.className = 'back-button';
-  a.href = './viewer.html?v=0.3c24';
+  a.href = './viewer.html?v=0.3c25';
   a.target = '_blank';
   a.rel = 'noopener';
   a.textContent = '保存済み3DGSを表示';
@@ -88,7 +88,7 @@ function augmentResult() {
 
   const viewerLink = document.createElement('a');
   viewerLink.className = 'train-secondary';
-  viewerLink.href = './viewer.html?v=0.3c24';
+  viewerLink.href = './viewer.html?v=0.3c25';
   viewerLink.target = '_blank';
   viewerLink.rel = 'noopener';
   viewerLink.textContent = 'PLY / SPZを別画面で開く';

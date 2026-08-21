@@ -1,6 +1,6 @@
 import * as pc from 'playcanvas';
 import { SpzParser } from './vendor/playcanvas-spz/spz-parser.mjs';
-import { buildViewerUrl, decodeViewState, normalizeViewState } from './delivery.js?v=0.3c23';
+import { buildViewerUrl, decodeViewState, normalizeViewState } from './delivery.js?v=0.3c25';
 
 const canvas = document.querySelector('#viewer-canvas');
 const wrap = document.querySelector('.canvas-wrap');
@@ -23,6 +23,8 @@ function finite3(v) { return Array.isArray(v) && v.length === 3 && v.every(Numbe
 
 let device;
 let app;
+let camera = null;
+let cameraComponent = null;
 let entity = null;
 let asset = null;
 let objectUrl = null;
@@ -41,7 +43,12 @@ let pointerId = null;
 let lastX = 0;
 let lastY = 0;
 
-const camera = new pc.Entity('Camera');
+function requireCameraComponent() {
+  if (!camera || !cameraComponent) {
+    throw new Error('WebGL viewer camera component is not initialized.');
+  }
+  return cameraComponent;
+}
 
 function direction() {
   const cp = Math.cos(pitch);
@@ -49,8 +56,9 @@ function direction() {
 }
 
 function setClips() {
-  camera.camera.nearClip = Math.max(radius * 0.00002, 0.00001);
-  camera.camera.farClip = Math.max(radius * 100, distance + radius * 20, 100);
+  const component = requireCameraComponent();
+  component.nearClip = Math.max(radius * 0.00002, 0.00001);
+  component.farClip = Math.max(radius * 100, distance + radius * 20, 100);
 }
 
 function updateCamera() {
@@ -61,7 +69,7 @@ function updateCamera() {
   pitch = clamp(pitch, -1.45, 1.45);
   if (mode === 'look') {
     const d = direction();
-    camera.camera.fov = clamp(fov, 20, 110);
+    requireCameraComponent().fov = clamp(fov, 20, 110);
     camera.setPosition(lookPos[0], lookPos[1], lookPos[2]);
     camera.lookAt(
       lookPos[0] + d[0] * Math.max(radius, 1),
@@ -70,7 +78,7 @@ function updateCamera() {
     );
   } else {
     distance = clamp(distance, Math.max(radius * 0.08, 0.0001), Math.max(radius * 40, 1));
-    camera.camera.fov = 55;
+    requireCameraComponent().fov = 55;
     const cp = Math.cos(pitch);
     camera.setPosition(
       center[0] + distance * Math.sin(yaw) * cp,
@@ -148,12 +156,16 @@ async function init() {
     const handler = app.loader.getHandler('gsplat');
     handler.addParser(new SpzParser(app));
 
-    camera.addComponent('camera', {
+    // AppBase is constructed manually in this viewer. Bind the Entity to that
+    // exact application instead of relying on PlayCanvas' global current-app lookup.
+    camera = new pc.Entity('Camera', app);
+    cameraComponent = camera.addComponent('camera', {
       clearColor: new pc.Color(0.07, 0.08, 0.10),
       fov: 55,
       nearClip: 0.0001,
       farClip: 100000
     });
+    if (!cameraComponent) throw new Error('CameraComponentを初期化できません。');
     app.root.addChild(camera);
     app.start();
     status.textContent = 'WebGL 2 / WebGPU不要';
@@ -186,8 +198,9 @@ async function loadModel(src, name = '360gs.spz', { local = false } = {}) {
       asset.once('error', reject);
       app.assets.load(asset);
     });
-    entity = new pc.Entity('3DGS');
-    entity.addComponent('gsplat', { asset });
+    entity = new pc.Entity('3DGS', app);
+    const gsplatComponent = entity.addComponent('gsplat', { asset });
+    if (!gsplatComponent) throw new Error('GSplatComponentを初期化できません。');
     app.root.addChild(entity);
 
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
