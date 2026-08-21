@@ -1,10 +1,10 @@
-360GS v0.3c24
-Brush runtime loading reliability hotfix after v0.3c23 delivery features
+360GS v0.3c25
+WebGL 2 viewer camera-component ownership fix for PLY / SPZ v4 loading
 Training baseline remains v0.3c22: direct ERP, spherical geometry, post-triangulation pose refinement, SH1 and effective-rank Gaussian regularization are unchanged
-The c22 training.js implementation is left unchanged; an import-map wrapper intercepts only its Brush runtime import
-Brush JavaScript is module-preloaded and checked with explicit same-origin HTTP diagnostics before module evaluation
-Transient HTTP 429 and 5xx responses are retried once with bounded delay; a failed JavaScript module evaluation/import is retried once with a unique query URL
-Brush JavaScript delivery and the 46 MB WebAssembly fetch/initialization are diagnosed separately and preserve detailed errors for the existing training log
-The validated c22 Brush JavaScript/WebAssembly runtime remains version-pinned so ordinary browser caching is retained and unnecessary large downloads are avoided
-SPZ v4 export, shareable viewpoints and the WebGL 2 viewer remain unchanged from v0.3c23
+SPZ v4 encoder and decoder behavior remain unchanged from v0.3c23
+Standalone PlayCanvas AppBase viewer now creates Camera and GSplat entities with the active application explicitly supplied
+CameraComponent returned by addComponent is retained and used directly for FOV and clipping-plane updates; viewer no longer relies on an implicit entity.camera accessor
+This fixes the reported SPZ post-load error: Cannot set properties of undefined (setting fov)
+Viewer patch validation checks JavaScript syntax, explicit app ownership for Camera and GSplat, absence of camera.camera.fov, and the existing PLY-to-SPZ-v4 round trip
+Brush runtime reliability wrapper from v0.3c24 remains unchanged
 Build date: 2026-08-21
