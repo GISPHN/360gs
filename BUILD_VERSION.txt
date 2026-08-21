@@ -5,5 +5,6 @@ SPZ v4 encoder and decoder behavior remain unchanged from v0.3c23
 Standalone PlayCanvas AppBase viewer now creates Camera and GSplat entities with the active application explicitly supplied
 CameraComponent returned by addComponent is retained and used directly for FOV and clipping-plane updates; viewer no longer relies on an implicit entity.camera accessor
 This fixes the reported SPZ post-load error: Cannot set properties of undefined (setting fov)
+Viewer patch validation checks JavaScript syntax, explicit app ownership for Camera and GSplat, absence of camera.camera.fov, and the existing PLY-to-SPZ-v4 round trip
 Brush runtime reliability wrapper from v0.3c24 remains unchanged
 Build date: 2026-08-21
