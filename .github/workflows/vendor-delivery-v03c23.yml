@@ -29,18 +29,27 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Vendor official SPZ WASM package
+      - name: Vendor official SPZ WASM and PlayCanvas runtime
         run: |
-          rm -rf _npm vendor/spz
-          mkdir -p _npm vendor/spz
+          rm -rf _npm vendor/spz vendor/playcanvas
+          mkdir -p _npm vendor/spz vendor/playcanvas
           cd _npm
           npm init -y >/dev/null 2>&1
-          npm install --ignore-scripts --no-audit --no-fund @adobe/spz@0.2.2
+          npm install --ignore-scripts --no-audit --no-fund @adobe/spz@0.2.2 playcanvas@2.21.2
           cd ..
           cp -R _npm/node_modules/@adobe/spz/. vendor/spz/
           rm -rf vendor/spz/node_modules
+          cp _npm/node_modules/playcanvas/build/playcanvas.mjs vendor/playcanvas/playcanvas.mjs
+          cp _npm/node_modules/playcanvas/LICENSE vendor/playcanvas/LICENSE
+          cat > vendor/playcanvas/BUILD_INFO.txt <<'EOF'
+          PlayCanvas browser runtime used by the 360GS viewer.
+          Package: playcanvas 2.21.2.
+          The c23 standalone viewer explicitly selects WebGL2 so viewing does not require WebGPU.
+          EOF
           echo 'Vendored @adobe/spz files:'
           find vendor/spz -maxdepth 3 -type f -print | sort
+          echo 'Vendored PlayCanvas runtime:'
+          find vendor/playcanvas -maxdepth 2 -type f -print | sort
 
       - name: Vendor PlayCanvas SPZ parser and ZSTD decoder
         run: |
@@ -72,7 +81,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add vendor/spz vendor/playcanvas-spz
+          git add vendor/spz vendor/playcanvas vendor/playcanvas-spz
           if git diff --cached --quiet; then
             echo 'Vendor assets unchanged.'
           else
