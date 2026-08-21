@@ -6,6 +6,11 @@ on:
       - v03c25-webgl-camera-component
     paths:
       - '.github/workflows/apply-v03c25-viewer.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-v03c25-viewer.yml'
   workflow_dispatch:
 
 permissions:
@@ -55,12 +60,9 @@ jobs:
           s=s.replace(old,new,1)
           p.write_text(s)
 
-          # Keep the public app version coherent without changing training mathematics.
           for name in ['index.html','video.html','viewer.html','delivery-ui.js']:
               q=Path(name)
-              text=q.read_text().replace('0.3c24','0.3c25')
-              # delivery-ui still carried a few c23 delivery-only URLs before c24.
-              text=text.replace('0.3c23','0.3c25')
+              text=q.read_text().replace('0.3c24','0.3c25').replace('0.3c23','0.3c25')
               q.write_text(text)
 
           Path('BUILD_VERSION.txt').write_text('''360GS v0.3c25\nWebGL 2 viewer camera-component ownership fix for PLY / SPZ v4 loading\nTraining baseline remains v0.3c22: direct ERP, spherical geometry, post-triangulation pose refinement, SH1 and effective-rank Gaussian regularization are unchanged\nSPZ v4 encoder and decoder behavior remain unchanged from v0.3c23\nStandalone PlayCanvas AppBase viewer now creates Camera and GSplat entities with the active application explicitly supplied\nCameraComponent returned by addComponent is retained and used directly for FOV and clipping-plane updates; viewer no longer relies on an implicit entity.camera accessor\nThis fixes the reported SPZ post-load error: Cannot set properties of undefined (setting fov)\nBrush runtime reliability wrapper from v0.3c24 remains unchanged\nBuild date: 2026-08-21\n''')
