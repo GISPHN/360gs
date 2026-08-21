@@ -224,19 +224,17 @@ async function getSpzModule() {
   return spzModulePromise;
 }
 
-async function encodeCloudSpzV4(cloud, { bounds = null } = {}) {
+async function encodeCloudSpzV4(cloud, _options = {}) {
   const mod = await getSpzModule();
-  const extensions = [];
-  if (typeof mod.SpzHasExtensionSupport === 'function' && mod.SpzHasExtensionSupport() && mod.SpzExtensionSafeOrbitCameraAdobe) {
-    try {
-      const safe = new mod.SpzExtensionSafeOrbitCameraAdobe();
-      safe.safeOrbitElevationMin = -1.45;
-      safe.safeOrbitElevationMax = 1.45;
-      safe.safeOrbitRadiusMin = Math.max(1e-5, Number(bounds?.radius || 1) * 0.08);
-      extensions.push(safe);
-    } catch {}
-  }
-  cloud.extensions = extensions;
+
+  // SPZ extensions are optional. @adobe/spz 0.2.2 exposes the safe-orbit
+  // class in JavaScript, but passing a JS-created extension instance back to
+  // saveSpzToBuffer currently triggers an embind raw-pointer/smart-pointer
+  // conversion error. Keep c23 export standards-compliant by writing no
+  // optional extension. The 360GS WebGL viewer independently enforces the
+  // same conservative pitch and minimum-orbit guards.
+  cloud.extensions = [];
+
   const bytes = mod.saveSpzToBuffer(cloud, {
     version: 4,
     from: mod.CoordinateSystem.RDF,
