@@ -1,0 +1,5 @@
+360GS vendored browser SPZ encoder/decoder.
+Package: @adobe/spz 0.2.2.
+Upstream: nianticlabs/spz.
+Purpose: local browser conversion of generated Gaussian data to SPZ v4.
+No user splat/image data is sent to npm or any conversion server at runtime.
