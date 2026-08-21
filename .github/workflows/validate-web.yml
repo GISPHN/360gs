@@ -9,6 +9,19 @@ on:
       - '*.html'
       - '*.css'
       - 'BUILD_VERSION.txt'
+      - 'tools/test_delivery_v03c23.mjs'
+      - 'vendor/spz/**'
+      - 'vendor/playcanvas/**'
+      - 'vendor/playcanvas-spz/**'
+      - '.github/workflows/validate-web.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '*.js'
+      - '*.html'
+      - '*.css'
+      - 'BUILD_VERSION.txt'
+      - 'tools/test_delivery_v03c23.mjs'
       - 'vendor/spz/**'
       - 'vendor/playcanvas/**'
       - 'vendor/playcanvas-spz/**'
@@ -28,10 +41,12 @@ jobs:
 
       - name: Check JavaScript syntax
         run: |
+          set -euo pipefail
           for file in *.js; do
             echo "Checking $file"
             node --check "$file"
           done
+          node --check tools/test_delivery_v03c23.mjs
 
       - name: Verify current app and training assets
         shell: bash
@@ -42,6 +57,8 @@ jobs:
           test -f training.css
           test -f video.html
           test -f index.html
+          test -f viewer.html
+          test -f delivery-ui.js
 
           version="$(sed -n '1s/^360GS v//p' BUILD_VERSION.txt)"
           if [[ -z "$version" ]]; then
@@ -51,15 +68,21 @@ jobs:
           echo "Validating 360GS ${version}"
 
           grep -Fq "Prototype v${version}" index.html
+          grep -Fq "Prototype v${version}" video.html
           grep -Fq "Prototype v${version}" viewer.html
           grep -Fq "Prototype v${version}" delivery-ui.js
-          grep -Fq "SPZ v4" delivery-ui.js
+          grep -Fq "delivery-ui.js?v=${version}" video.html
+          grep -Fq "SPZ v4を保存" delivery-ui.js
+          grep -Fq "WebGLビューア" delivery-ui.js
+          grep -Fq "encodePlyToSpzV4" delivery-ui.js
           grep -Fq "DEVICETYPE_WEBGL2" viewer.js
+          grep -Fq "SpzParser" viewer.js
+          grep -Fq "saveSpzToBuffer" delivery.js
+          grep -Fq "CoordinateSystem.RDF" delivery.js
           grep -Fq "'train-panel'" autoscroll.js
 
-          # The delivery release can intentionally retain the prior validated
-          # Brush training runtime. Require an explicit cache key, but do not
-          # force it to equal the UI/delivery release number.
+          # v0.3c23 is intentionally a delivery-only release. The validated
+          # v0.3c22 Brush training code and WASM cache key may remain unchanged.
           grep -Eq "brush_js_bg\\.wasm\\?v=0\\.3c[0-9]+" training.js
 
       - name: Verify generated Brush and delivery runtimes
@@ -72,7 +95,8 @@ jobs:
           test -s vendor/spz/dist/spz.js
           test -s vendor/playcanvas/playcanvas.mjs
           test -s vendor/playcanvas-spz/spz-parser.mjs
+          test -s vendor/playcanvas-spz/zstd.wasm.js
           test -s vendor/playcanvas-spz/zstd.wasm.wasm
 
-      - name: Smoke test SPZ v4 and viewpoint serialization
+      - name: Smoke test production PLY to SPZ v4 conversion and viewpoint serialization
         run: node tools/test_delivery_v03c23.mjs
