@@ -3,7 +3,7 @@ import { encodePlyToSpzV4, buildViewerUrl } from './delivery.js?v=0.3c23';
 const previewUrls = [];
 
 function setVersion() {
-  document.querySelectorAll('.version').forEach(n => n.textContent = 'Prototype v0.3c23');
+  document.querySelectorAll('.version').forEach(n => n.textContent = 'Prototype v0.3c24');
 }
 
 function notify(text, kind = 'success') {
@@ -27,11 +27,11 @@ function download(blob, name) {
 
 function addViewerEntry() {
   const bar = document.querySelector('.screen-toolbar');
-  if (!bar || bar.querySelector('[data-c23-viewer]')) return;
+  if (!bar || bar.querySelector('[data-c24-viewer]')) return;
   const a = document.createElement('a');
-  a.dataset.c23Viewer = '1';
+  a.dataset.c24Viewer = '1';
   a.className = 'back-button';
-  a.href = './viewer.html?v=0.3c23';
+  a.href = './viewer.html?v=0.3c24';
   a.target = '_blank';
   a.rel = 'noopener';
   a.textContent = '保存済み3DGSを表示';
@@ -43,7 +43,7 @@ function augmentResult() {
   const box = document.querySelector('#train-result');
   const actions = box?.querySelector('.train-result-actions');
   if (!result?.ready || !(result.blob instanceof Blob) || !actions) return;
-  if (actions.querySelector('[data-c23-spz]')) return;
+  if (actions.querySelector('[data-c24-spz]')) return;
 
   const segment = result.segmentId ?? 'result';
   const plyName = `360gs_segment_${segment}.ply`;
@@ -52,7 +52,7 @@ function augmentResult() {
   const spz = document.createElement('button');
   spz.type = 'button';
   spz.className = 'train-secondary';
-  spz.dataset.c23Spz = '1';
+  spz.dataset.c24Spz = '1';
   spz.textContent = 'SPZ v4を保存';
   spz.addEventListener('click', async () => {
     const old = spz.textContent;
@@ -77,7 +77,7 @@ function augmentResult() {
   const webgl = document.createElement('button');
   webgl.type = 'button';
   webgl.className = 'train-secondary';
-  webgl.dataset.c23Webgl = '1';
+  webgl.dataset.c24Webgl = '1';
   webgl.textContent = 'WebGLビューア';
   webgl.addEventListener('click', () => {
     const u = URL.createObjectURL(result.blob);
@@ -88,7 +88,7 @@ function augmentResult() {
 
   const viewerLink = document.createElement('a');
   viewerLink.className = 'train-secondary';
-  viewerLink.href = './viewer.html?v=0.3c23';
+  viewerLink.href = './viewer.html?v=0.3c24';
   viewerLink.target = '_blank';
   viewerLink.rel = 'noopener';
   viewerLink.textContent = 'PLY / SPZを別画面で開く';
@@ -100,7 +100,7 @@ function augmentResult() {
   if (meta && !meta.textContent.includes('SPZ')) {
     meta.textContent += ' / SPZ v4対応';
   }
-  notify('3DGS生成が完了しました。c23ではPLYに加えてSPZ v4保存とWebGL 2表示を利用できます。');
+  notify('3DGS生成が完了しました。c24ではPLYに加えてSPZ v4保存とWebGL 2表示を利用できます。');
 }
 
 setVersion();

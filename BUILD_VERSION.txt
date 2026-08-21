@@ -1,11 +1,10 @@
-360GS v0.3c23
-Gauzilla-inspired browser delivery: SPZ v4 export, viewpoint URLs, and WebGL 2 fallback viewer
+360GS v0.3c24
+Brush runtime loading reliability hotfix after v0.3c23 delivery features
 Training baseline remains v0.3c22: direct ERP, spherical geometry, post-triangulation pose refinement, SH1 and effective-rank Gaussian regularization are unchanged
-Generated 3DGS PLY can be converted locally to SPZ v4 with the vendored @adobe/spz 0.2.2 WebAssembly encoder
-The SPZ encoder receives standard 3DGS RDF coordinates and converts them using the official coordinate-system implementation; PLY wxyz quaternions are reordered to SPZ xyzw
-The standalone viewer loads PLY or SPZ v4 with locally vendored PlayCanvas 2.21.2 and explicitly selects WebGL 2 so viewing does not require WebGPU
-SPZ v4 viewing uses PlayCanvas's external SPZ parser and vendored ZSTD decoder
-Viewer state stores yaw, pitch, scene-radius-normalized orbit distance, FOV and optional look position in the URL hash
-The generated-result panel gains SPZ v4 download and one-click WebGL viewer controls without changing the c22 Brush runtime
-Gauzilla is an architectural reference only; no Gauzilla source is copied
+The c22 training.js implementation is left unchanged; an import-map wrapper intercepts only its Brush runtime import
+Brush JavaScript is module-preloaded and checked with explicit same-origin HTTP diagnostics before module evaluation
+Transient HTTP 429 and 5xx responses are retried once with bounded delay; a failed JavaScript module evaluation/import is retried once with a unique query URL
+Brush JavaScript delivery and the 46 MB WebAssembly fetch/initialization are diagnosed separately and preserve detailed errors for the existing training log
+The validated c22 Brush JavaScript/WebAssembly runtime remains version-pinned so ordinary browser caching is retained and unnecessary large downloads are avoided
+SPZ v4 export, shareable viewpoints and the WebGL 2 viewer remain unchanged from v0.3c23
 Build date: 2026-08-21
