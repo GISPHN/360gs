@@ -1,6 +1,6 @@
 import * as pc from 'playcanvas';
 import { SpzParser } from './vendor/playcanvas-spz/spz-parser.mjs';
-import { buildViewerUrl, decodeViewState, normalizeViewState } from './delivery.js?v=0.3c23';
+import { buildViewerUrl, decodeViewState, normalizeViewState } from './delivery.js?v=0.3c25';
 
 const canvas = document.querySelector('#viewer-canvas');
 const wrap = document.querySelector('.canvas-wrap');
@@ -23,6 +23,7 @@ function finite3(v) { return Array.isArray(v) && v.length === 3 && v.every(Numbe
 
 let device;
 let app;
+let camera = null;
 let entity = null;
 let asset = null;
 let objectUrl = null;
@@ -41,7 +42,11 @@ let pointerId = null;
 let lastX = 0;
 let lastY = 0;
 
-const camera = new pc.Entity('Camera');
+function cameraComponent() {
+  const component = camera?.camera;
+  if (!component) throw new Error('WebGL viewerのCameraComponentを初期化できませんでした。ページを再読み込みしてください。');
+  return component;
+}
 
 function direction() {
   const cp = Math.cos(pitch);
@@ -49,19 +54,22 @@ function direction() {
 }
 
 function setClips() {
-  camera.camera.nearClip = Math.max(radius * 0.00002, 0.00001);
-  camera.camera.farClip = Math.max(radius * 100, distance + radius * 20, 100);
+  const cc = cameraComponent();
+  cc.nearClip = Math.max(radius * 0.00002, 0.00001);
+  cc.farClip = Math.max(radius * 100, distance + radius * 20, 100);
 }
 
 function updateCamera() {
+  if (!camera) return;
   if (!Number.isFinite(yaw) || !Number.isFinite(pitch) || !Number.isFinite(distance) || !finite3(lookPos)) {
     fit();
     return;
   }
+  const cc = cameraComponent();
   pitch = clamp(pitch, -1.45, 1.45);
   if (mode === 'look') {
     const d = direction();
-    camera.camera.fov = clamp(fov, 20, 110);
+    cc.fov = clamp(fov, 20, 110);
     camera.setPosition(lookPos[0], lookPos[1], lookPos[2]);
     camera.lookAt(
       lookPos[0] + d[0] * Math.max(radius, 1),
@@ -70,7 +78,7 @@ function updateCamera() {
     );
   } else {
     distance = clamp(distance, Math.max(radius * 0.08, 0.0001), Math.max(radius * 40, 1));
-    camera.camera.fov = 55;
+    cc.fov = 55;
     const cp = Math.cos(pitch);
     camera.setPosition(
       center[0] + distance * Math.sin(yaw) * cp,
@@ -146,15 +154,22 @@ async function init() {
       wasmUrl: './vendor/playcanvas-spz/zstd.wasm.wasm'
     });
     const handler = app.loader.getHandler('gsplat');
+    if (!handler) throw new Error('PlayCanvas GSplat handlerを初期化できませんでした。');
     handler.addParser(new SpzParser(app));
 
+    // Create the camera only after AppBase has registered CameraComponentSystem.
+    // Creating the Entity before app.init() can leave entity.camera undefined
+    // when a model load immediately restores a viewpoint and writes camera.fov.
+    camera = new pc.Entity('Camera');
     camera.addComponent('camera', {
       clearColor: new pc.Color(0.07, 0.08, 0.10),
       fov: 55,
       nearClip: 0.0001,
       farClip: 100000
     });
+    if (!camera.camera) throw new Error('CameraComponentの登録に失敗しました。');
     app.root.addChild(camera);
+
     app.start();
     status.textContent = 'WebGL 2 / WebGPU不要';
     status.className = 'status';
@@ -173,7 +188,10 @@ function clearScene() {
 }
 
 async function loadModel(src, name = '360gs.spz', { local = false } = {}) {
-  if (!app) return;
+  if (!app || !camera?.camera) {
+    msg('WebGL viewerの初期化が完了していません。少し待ってからもう一度選択してください。');
+    return;
+  }
   clearScene();
   msg('3DGSを読み込んでいます。');
   sourceUrl = local ? '' : src;
@@ -215,12 +233,10 @@ async function loadFile(file) {
     msg('PLYまたはSPZ v4ファイルを選択してください。');
     return;
   }
-  objectUrl = URL.createObjectURL(file);
-  const u = objectUrl;
-  // clearScene revokes an old object URL, so keep the newly created one after it.
-  objectUrl = null;
+  const u = URL.createObjectURL(file);
   await loadModel(u, file.name, { local: true });
-  objectUrl = u;
+  if (entity) objectUrl = u;
+  else URL.revokeObjectURL(u);
 }
 
 async function copyViewUrl() {
@@ -273,6 +289,7 @@ canvas.addEventListener('pointercancel', endDrag);
 canvas.addEventListener('lostpointercapture', () => { drag = false; pointerId = null; });
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
+  if (!camera?.camera) return;
   if (mode === 'look') fov = clamp(fov * Math.exp(e.deltaY * 0.001), 20, 110);
   else distance = clamp(distance * Math.exp(e.deltaY * 0.001), Math.max(radius * 0.08, 0.0001), Math.max(radius * 40, 1));
   updateCamera();
@@ -286,7 +303,10 @@ loadUrlButton.addEventListener('click', () => {
   if (!/\.(ply|spz)$/i.test(name)) name = '360gs.spz';
   loadModel(src, name, { local: false });
 });
-fitButton.addEventListener('click', fit);
+fitButton.addEventListener('click', () => {
+  if (!camera?.camera) { msg('WebGL viewerの初期化が完了していません。'); return; }
+  fit();
+});
 copyButton.addEventListener('click', copyViewUrl);
 new ResizeObserver(resize).observe(wrap);
 
