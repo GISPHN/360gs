@@ -6,6 +6,11 @@ on:
       - v03c24-brush-runtime-reliability
     paths:
       - '.github/workflows/apply-v03c24-runtime.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-v03c24-runtime.yml'
   workflow_dispatch:
 
 permissions:
@@ -91,7 +96,6 @@ jobs:
               raise SystemExit(f'Could not replace trRuntimeReady; matches={n}')
           p.write_text(ns)
 
-          # Bump only delivery/UI cache keys. The Brush binary remains the validated c22 runtime.
           for name in ['index.html','video.html','viewer.html','viewer.js','delivery-ui.js']:
               q=Path(name)
               q.write_text(q.read_text().replace('0.3c23','0.3c24'))
